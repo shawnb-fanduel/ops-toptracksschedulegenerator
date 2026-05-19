@@ -170,7 +170,17 @@
                     </select>
                 </div>
             </div>
-            
+            <details>
+            <summary>Options: </summary>
+            <!-- <h4>Matching Threshold:</h4> -->
+            <label>
+                Required Tracks:
+                <textarea placeholder="track codes that must always be set to active" id="inputAlwaysEnableTrackCodes" rows="5">CD
+AQU
+BEL</textarea>
+            </label>
+            <!-- <textarea placeholder="" id="inputText2"></textarea> -->
+        </details>
             <button onclick="generateSchedule()">🎯 Generate Schedule</button>
         </article>
         
@@ -240,6 +250,20 @@
                 return row;
             });
         }
+    
+    // Get required track codes from textarea
+    function getRequiredTrackCodes() {
+        const textarea = document.getElementById('inputAlwaysEnableTrackCodes');
+        if (!textarea || !textarea.value.trim()) {
+            return [];
+        }
+        
+        // Split by newlines and filter out empty strings
+        return textarea.value
+            .split('\n')
+            .map(code => code.trim().toUpperCase())
+            .filter(code => code.length > 0);
+    }
         
         // Parse handle from string to number
         function parseHandle(handleStr) {
@@ -349,10 +373,17 @@
         }
         
         function processSchedule(data, startTimeStr, endTimeStr) {
-            // Filter only enabled tracks
-            const activeTracks = data.filter(track => 
-                track['Active'] && track['Active'].toLowerCase() === 'enabled'
-            );
+        // Get required track codes
+        const requiredTrackCodes = getRequiredTrackCodes();
+        
+        // Filter tracks - either marked as enabled OR in the required list
+        const activeTracks = data.filter(track => {
+            const isEnabled = track['Active'] && track['Active'].toLowerCase() === 'enabled';
+            const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
+            const isRequired = requiredTrackCodes.includes(trackCode);
+            
+            return isEnabled || isRequired;
+        });
             
             if (activeTracks.length === 0) {
                 document.getElementById('results').innerHTML = `
