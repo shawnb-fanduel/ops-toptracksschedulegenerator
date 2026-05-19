@@ -208,48 +208,50 @@ BEL</textarea>
         </div>
     </main>
     
-    <script>
-        // Global variable to store the current schedule
-        let currentSchedule = [];
+<script>
+    // Global variable to store the current schedule
+    let currentSchedule = [];
+    // *** PRIORITY THRESHOLD: Tracks with handle >= this amount will be chosen earlier ***
+    const HIGH_PRIORITY_HANDLE_THRESHOLD = 400000;
+    
+    // Update file name display
+    document.getElementById('csvFile').addEventListener('change', function(e) {
+        const fileName = e.target.files[0]?.name || 'Choose file...';
+        document.getElementById('fileName').textContent = '📁 ' + fileName;
+    });
+    
+    // Parse CSV file
+    function parseCSV(text) {
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
         
-        // Update file name display
-        document.getElementById('csvFile').addEventListener('change', function(e) {
-            const fileName = e.target.files[0]?.name || 'Choose file...';
-            document.getElementById('fileName').textContent = '📁 ' + fileName;
-        });
-        
-        // Parse CSV file
-        function parseCSV(text) {
-            const lines = text.trim().split('\n');
-            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+        return lines.slice(1).map(line => {
+            // Handle quoted values that may contain commas
+            const values = [];
+            let currentValue = '';
+            let inQuotes = false;
             
-            return lines.slice(1).map(line => {
-                // Handle quoted values that may contain commas
-                const values = [];
-                let currentValue = '';
-                let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
                 
-                for (let i = 0; i < line.length; i++) {
-                    const char = line[i];
-                    
-                    if (char === '"') {
-                        inQuotes = !inQuotes;
-                    } else if (char === ',' && !inQuotes) {
-                        values.push(currentValue.trim().replace(/^"|"$/g, ''));
-                        currentValue = '';
-                    } else {
-                        currentValue += char;
-                    }
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    values.push(currentValue.trim().replace(/^"|"$/g, ''));
+                    currentValue = '';
+                } else {
+                    currentValue += char;
                 }
-                values.push(currentValue.trim().replace(/^"|"$/g, ''));
-                
-                const row = {};
-                headers.forEach((header, index) => {
-                    row[header] = values[index] || '';
-                });
-                return row;
+            }
+            values.push(currentValue.trim().replace(/^"|"$/g, ''));
+            
+            const row = {};
+            headers.forEach((header, index) => {
+                row[header] = values[index] || '';
             });
-        }
+            return row;
+        });
+    }
     
     // Get required track codes from textarea
     function getRequiredTrackCodes() {
@@ -264,115 +266,115 @@ BEL</textarea>
             .map(code => code.trim().toUpperCase())
             .filter(code => code.length > 0);
     }
-        
-        // Parse handle from string to number
-        function parseHandle(handleStr) {
-            if (!handleStr) return 0;
-            return parseFloat(handleStr.replace(/[$,]/g, '')) || 0;
+    
+    // Parse handle from string to number
+    function parseHandle(handleStr) {
+        if (!handleStr) return 0;
+        return parseFloat(handleStr.replace(/[$,]/g, '')) || 0;
+    }
+    
+    // Round time to nearest 15 minutes
+    function roundToQuarter(date) {
+        const minutes = date.getMinutes();
+        const roundedMinutes = Math.round(minutes / 15) * 15;
+        date.setMinutes(roundedMinutes);
+        date.setSeconds(0);
+        date.setMilliseconds(0);
+        return date;
+    }
+    
+    // Format time for display
+    function formatTime(date) {
+        return date.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit',
+            hour12: true 
+        });
+    }
+    
+    // Format date and time
+    function formatDateTime(date) {
+        return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    }
+    
+    // Format datetime for CSV (ISO format)
+    function formatDateTimeForCSV(date) {
+        return date.toISOString();
+    }
+    
+    // Download schedule as CSV
+    function downloadCSV() {
+        if (currentSchedule.length === 0) {
+            alert('No schedule to download!');
+            return;
         }
         
-        // Round time to nearest 15 minutes
-        function roundToQuarter(date) {
-            const minutes = date.getMinutes();
-            const roundedMinutes = Math.round(minutes / 15) * 15;
-            date.setMinutes(roundedMinutes);
-            date.setSeconds(0);
-            date.setMilliseconds(0);
-            return date;
+        // Create CSV content
+        let csvContent = 'Slot,Track Name,Track Code,Start Time,End Time,Duration (minutes),Handle\n';
+        
+        currentSchedule.forEach(item => {
+            const duration = Math.round((item.end - item.start) / (1000 * 60));
+            const row = [
+                item.slot,
+                `"${item.track.name}"`,
+                item.track.code,
+                formatDateTimeForCSV(item.start),
+                formatDateTimeForCSV(item.end),
+                duration,
+                item.track.handle.toFixed(2)
+            ].join(',');
+            csvContent += row + '\n';
+        });
+        
+        // Create blob and download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', `racetrack_schedule_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    
+    // Main scheduling algorithm
+    function generateSchedule() {
+        const fileInput = document.getElementById('csvFile');
+        const startTimeStr = document.getElementById('startTime').value;
+        const endTimeStr = document.getElementById('endTime').value;
+        
+        if (!fileInput.files[0]) {
+            alert('Please upload a CSV file first!');
+            return;
         }
         
-        // Format time for display
-        function formatTime(date) {
-            return date.toLocaleTimeString('en-US', { 
-                hour: 'numeric', 
-                minute: '2-digit',
-                hour12: true 
-            });
-        }
-        
-        // Format date and time
-        function formatDateTime(date) {
-            return date.toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
-        }
-        
-        // Format datetime for CSV (ISO format)
-        function formatDateTimeForCSV(date) {
-            return date.toISOString();
-        }
-        
-        // Download schedule as CSV
-        function downloadCSV() {
-            if (currentSchedule.length === 0) {
-                alert('No schedule to download!');
-                return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const csvData = parseCSV(e.target.result);
+                processSchedule(csvData, startTimeStr, endTimeStr);
+            } catch (error) {
+                document.getElementById('results').innerHTML = `
+                    <article style="background: var(--pico-del-color); color: white;">
+                        <p>Error parsing CSV: ${error.message}</p>
+                    </article>
+                `;
+                document.getElementById('results').style.display = 'block';
             }
-            
-            // Create CSV content
-            let csvContent = 'Slot,Track Name,Track Code,Start Time,End Time,Duration (minutes),Handle\n';
-            
-            currentSchedule.forEach(item => {
-                const duration = Math.round((item.end - item.start) / (1000 * 60));
-                const row = [
-                    item.slot,
-                    `"${item.track.name}"`,
-                    item.track.code,
-                    formatDateTimeForCSV(item.start),
-                    formatDateTimeForCSV(item.end),
-                    duration,
-                    item.track.handle.toFixed(2)
-                ].join(',');
-                csvContent += row + '\n';
-            });
-            
-            // Create blob and download
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            
-            link.setAttribute('href', url);
-            link.setAttribute('download', `racetrack_schedule_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-        
-        // Main scheduling algorithm
-        function generateSchedule() {
-            const fileInput = document.getElementById('csvFile');
-            const startTimeStr = document.getElementById('startTime').value;
-            const endTimeStr = document.getElementById('endTime').value;
-            
-            if (!fileInput.files[0]) {
-                alert('Please upload a CSV file first!');
-                return;
-            }
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const csvData = parseCSV(e.target.result);
-                    processSchedule(csvData, startTimeStr, endTimeStr);
-                } catch (error) {
-                    document.getElementById('results').innerHTML = `
-                        <article style="background: var(--pico-del-color); color: white;">
-                            <p>Error parsing CSV: ${error.message}</p>
-                        </article>
-                    `;
-                    document.getElementById('results').style.display = 'block';
-                }
-            };
-            reader.readAsText(fileInput.files[0]);
-        }
-        
-        function processSchedule(data, startTimeStr, endTimeStr) {
+        };
+        reader.readAsText(fileInput.files[0]);
+    }
+    
+    function processSchedule(data, startTimeStr, endTimeStr) {
         // Get required track codes
         const requiredTrackCodes = getRequiredTrackCodes();
         
@@ -384,154 +386,172 @@ BEL</textarea>
             
             return isEnabled || isRequired;
         });
-            
-            if (activeTracks.length === 0) {
-                document.getElementById('results').innerHTML = `
-                    <article style="background: var(--pico-del-color); color: white;">
-                        <p>No active tracks found in the CSV file!</p>
-                    </article>
-                `;
-                document.getElementById('results').style.display = 'block';
-                return;
-            }
-            
-            // Parse and score tracks
-            const tracks = activeTracks.map(track => {
-                const handle = parseHandle(track['Handle']);
-                const earliestStart = new Date(track['Earliest Start Time']);
-                const lastPost = new Date(track['Last Post Start Date Time']);
-                
-                return {
-                    name: track['TVG Track Name'],
-                    code: track['TVG Track Code'],
-                    earliestStart: earliestStart,
-                    lastPost: lastPost,
-                    handle: handle,
-                    score: handle,
-                    isOnTV: track['Is On TV'] === '1'
-                };
-            }).filter(track => 
-                !isNaN(track.earliestStart.getTime()) && 
-                !isNaN(track.lastPost.getTime())
-            );
-            
-            // Sort by score (handle) - highest first
-            tracks.sort((a, b) => b.score - a.score);
-            
-            // Set up schedule boundaries
-            const referenceDate = tracks[0].earliestStart;
-            const scheduleStart = new Date(referenceDate);
-            const [startHour, startMinute] = startTimeStr.split(':').map(Number);
-            scheduleStart.setHours(startHour, startMinute, 0, 0);
-            
-            const scheduleEnd = new Date(scheduleStart);
-            scheduleEnd.setDate(scheduleEnd.getDate() + 1);
-            const [endHour, endMinute] = endTimeStr.split(':').map(Number);
-            scheduleEnd.setHours(endHour, endMinute, 0, 0);
-            
-            // *** ARRAY OF AVAILABLE START TIMES - ALL INITIALIZED TO 2:00 AM (scheduleStart) ***
-            const NUM_SLOTS = 6;
-            const slotAvailableStartTimes = Array(NUM_SLOTS).fill(null).map(() => new Date(scheduleStart));
-            
-            // Schedule result
-            const schedule = [];
-            
-            // Process each track in priority order (highest handle first)
-            for (const track of tracks) {
-                // Find the slot that becomes available earliest
-                let earliestSlotIndex = 0;
-                let earliestAvailableTime = slotAvailableStartTimes[0];
-                
-                for (let i = 1; i < NUM_SLOTS; i++) {
-                    if (slotAvailableStartTimes[i] < earliestAvailableTime) {
-                        earliestAvailableTime = slotAvailableStartTimes[i];
-                        earliestSlotIndex = i;
-                    }
-                }
-                
-                // Track starts exactly when the slot becomes available
-                let actualStart = new Date(earliestAvailableTime);
-                
-                // Calculate when this track ends (use its last post time)
-                let actualEnd = new Date(track.lastPost);
-                
-                // Add buffer for high-scoring tracks (15 minutes for races running late)
-                if (track.score > 200000) {
-                    actualEnd.setMinutes(actualEnd.getMinutes() + 15);
-                }
-                
-                // Round end time to nearest quarter hour
-                actualEnd = roundToQuarter(actualEnd);
-                
-                // Trim if extends past schedule end
-                if (actualEnd > scheduleEnd) {
-                    actualEnd = new Date(scheduleEnd);
-                }
-                
-                // Make sure end is after start
-                if (actualEnd <= actualStart) {
-                    actualEnd = new Date(actualStart);
-                    actualEnd.setMinutes(actualEnd.getMinutes() + 15);
-                }
-                
-                // Update the array: this slot's next available start time is when this track ends
-                slotAvailableStartTimes[earliestSlotIndex] = new Date(actualEnd);
-                
-                // Add to schedule
-                schedule.push({
-                    slot: earliestSlotIndex + 1,
-                    track: track,
-                    start: actualStart,
-                    end: actualEnd
-                });
-            }
-            
-            // Sort schedule by start time, then by slot
-            schedule.sort((a, b) => {
-                if (a.start.getTime() !== b.start.getTime()) {
-                    return a.start - b.start;
-                }
-                return a.slot - b.slot;
-            });
-            
-            // Store schedule globally for CSV export
-            currentSchedule = schedule;
-            
-            // Display results
-            displaySchedule(schedule, tracks);
+        
+        if (activeTracks.length === 0) {
+            document.getElementById('results').innerHTML = `
+                <article style="background: var(--pico-del-color); color: white;">
+                    <p>No active tracks found in the CSV file!</p>
+                </article>
+            `;
+            document.getElementById('results').style.display = 'block';
+            return;
         }
         
-        function displaySchedule(schedule, tracks) {
-            // Update stats
-            document.getElementById('totalTracks').textContent = tracks.length;
-            document.getElementById('scheduledTracks').textContent = schedule.length;
+        // Parse and score tracks
+        const tracks = activeTracks.map(track => {
+            const handle = parseHandle(track['Handle']);
+            const earliestStart = new Date(track['Earliest Start Time']);
+            const lastPost = new Date(track['Last Post Start Date Time']);
             
-            // Build schedule HTML
-            let scheduleHTML = '';
-            schedule.forEach((item, index) => {
-                const duration = (item.end - item.start) / (1000 * 60); // minutes
-                scheduleHTML += `
-                    <div class="track-slot">
-                        <div class="slot-number">${item.slot}</div>
-                        <div class="track-name">${item.track.name}</div>
-                        <div class="track-time">
-                            ${formatDateTime(item.start)} - ${formatTime(item.end)}
-                            <br><small>(${Math.round(duration)} min)</small>
-                        </div>
-                        <div class="track-handle">$${item.track.handle.toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                        })}</div>
-                    </div>
-                `;
+            return {
+                name: track['TVG Track Name'],
+                code: track['TVG Track Code'],
+                earliestStart: earliestStart,
+                lastPost: lastPost,
+                handle: handle,
+                score: handle,
+                isOnTV: track['Is On TV'] === '1',
+                isHighPriority: handle >= HIGH_PRIORITY_HANDLE_THRESHOLD
+            };
+        }).filter(track => 
+            !isNaN(track.earliestStart.getTime()) && 
+            !isNaN(track.lastPost.getTime())
+        );
+        
+        // Set up schedule boundaries for score calculation
+        const referenceDate = tracks[0].earliestStart;
+        const scheduleStart = new Date(referenceDate);
+        const [startHour, startMinute] = startTimeStr.split(':').map(Number);
+        scheduleStart.setHours(startHour, startMinute, 0, 0);
+        
+        // *** COMPOSITE SCORING: High priority tracks = pure handle, low priority = handle + time bonus ***
+        tracks.forEach(track => {
+            if (track.isHighPriority) {
+                // High handle tracks: score based purely on handle
+                track.score = track.handle;
+            } else {
+                // Lower handle tracks: bonus for starting earlier
+                // Calculate hours from schedule start
+                const hoursFromStart = (track.earliestStart - scheduleStart) / (1000 * 60 * 60);
+                
+                // Give earlier tracks a bonus (subtract penalty for later tracks)
+                // This makes tracks starting at 3:40 AM score higher than those at noon
+                const timeBonus = Math.max(0, 100000 - (hoursFromStart * 10000));
+                track.score = track.handle + timeBonus;
+            }
+        });
+        
+        // Sort by composite score - highest first
+        tracks.sort((a, b) => b.score - a.score);
+        
+        const scheduleEnd = new Date(scheduleStart);
+        scheduleEnd.setDate(scheduleEnd.getDate() + 1);
+        const [endHour, endMinute] = endTimeStr.split(':').map(Number);
+        scheduleEnd.setHours(endHour, endMinute, 0, 0);
+        
+        // *** ARRAY OF AVAILABLE START TIMES - ALL INITIALIZED TO 2:00 AM (scheduleStart) ***
+        const NUM_SLOTS = 6;
+        const slotAvailableStartTimes = Array(NUM_SLOTS).fill(null).map(() => new Date(scheduleStart));
+        
+        // Schedule result
+        const schedule = [];
+        
+        // Process each track in priority order (highest score first)
+        for (const track of tracks) {
+            // Find the slot that becomes available earliest
+            let earliestSlotIndex = 0;
+            let earliestAvailableTime = slotAvailableStartTimes[0];
+            
+            for (let i = 1; i < NUM_SLOTS; i++) {
+                if (slotAvailableStartTimes[i] < earliestAvailableTime) {
+                    earliestAvailableTime = slotAvailableStartTimes[i];
+                    earliestSlotIndex = i;
+                }
+            }
+            
+            // Track starts exactly when the slot becomes available
+            let actualStart = new Date(earliestAvailableTime);
+            
+            // Calculate when this track ends (use its last post time)
+            let actualEnd = new Date(track.lastPost);
+            
+            // Add buffer for high-scoring tracks (15 minutes for races running late)
+            if (track.handle > 260000) {
+                actualEnd.setMinutes(actualEnd.getMinutes() + 15);
+            }
+            
+            // Round end time to nearest quarter hour
+            actualEnd = roundToQuarter(actualEnd);
+            
+            // Trim if extends past schedule end
+            if (actualEnd > scheduleEnd) {
+                actualEnd = new Date(scheduleEnd);
+            }
+            
+            // Make sure end is after start
+            if (actualEnd <= actualStart) {
+                actualEnd = new Date(actualStart);
+                actualEnd.setMinutes(actualEnd.getMinutes() + 15);
+            }
+            
+            // Update the array: this slot's next available start time is when this track ends
+            slotAvailableStartTimes[earliestSlotIndex] = new Date(actualEnd);
+            
+            // Add to schedule
+            schedule.push({
+                slot: earliestSlotIndex + 1,
+                track: track,
+                start: actualStart,
+                end: actualEnd
             });
-            
-            document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
-            document.getElementById('results').style.display = 'block';
-            
-            // Scroll to results
-            document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-    </script>
+        
+        // Sort schedule by start time, then by slot
+        schedule.sort((a, b) => {
+            if (a.start.getTime() !== b.start.getTime()) {
+                return a.start - b.start;
+            }
+            return a.slot - b.slot;
+        });
+        
+        // Store schedule globally for CSV export
+        currentSchedule = schedule;
+        
+        // Display results
+        displaySchedule(schedule, tracks);
+    }
+    
+    function displaySchedule(schedule, tracks) {
+        // Update stats
+        document.getElementById('totalTracks').textContent = tracks.length;
+        document.getElementById('scheduledTracks').textContent = schedule.length;
+        
+        // Build schedule HTML
+        let scheduleHTML = '';
+        schedule.forEach((item, index) => {
+            const duration = (item.end - item.start) / (1000 * 60); // minutes
+            scheduleHTML += `
+                <div class="track-slot">
+                    <div class="slot-number">${item.slot}</div>
+                    <div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}</div>
+                    <div class="track-time">
+                        ${formatDateTime(item.start)} - ${formatTime(item.end)}
+                        <br><small>(${Math.round(duration)} min)</small>
+                    </div>
+                    <div class="track-handle">$${item.track.handle.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    })}</div>
+                </div>
+            `;
+        });
+        
+        document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
+        document.getElementById('results').style.display = 'block';
+        
+        // Scroll to results
+        document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+</script>
 </body>
 </html>
