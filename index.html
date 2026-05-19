@@ -72,7 +72,7 @@
         
         .track-slot {
             display: grid;
-            grid-template-columns: 100px 200px 1fr 150px;
+            grid-template-columns: 200px 1fr 150px;  /* Changed from: 100px 200px 1fr 150px */
             gap: 1rem;
             padding: 1rem;
             margin-bottom: 0.75rem;
@@ -80,12 +80,6 @@
             border-left: 4px solid var(--pico-primary);
             border-radius: var(--pico-border-radius);
             align-items: center;
-        }
-        
-        .slot-number {
-            font-weight: bold;
-            font-size: 1.125rem;
-            color: var(--pico-primary);
         }
         
         .track-name {
@@ -316,12 +310,11 @@ BEL</textarea>
         }
         
         // Create CSV content
-        let csvContent = 'Slot,Track Name,Track Code,Start Time,End Time,Duration (minutes),Handle\n';
+        let csvContent = 'Track Name,Track Code,Start Time,End Time,Duration (minutes),Handle\n';
         
         currentSchedule.forEach(item => {
             const duration = Math.round((item.end - item.start) / (1000 * 60));
             const row = [
-                item.slot,
                 `"${item.track.name}"`,
                 item.track.code,
                 formatDateTimeForCSV(item.start),
@@ -532,7 +525,7 @@ BEL</textarea>
             const duration = (item.end - item.start) / (1000 * 60); // minutes
             scheduleHTML += `
                 <div class="track-slot">
-                    <div class="slot-number">${item.slot}</div>
+                    <!-- DELETE THIS LINE: <div class="slot-number"></div> -->
                     <div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}</div>
                     <div class="track-time">
                         ${formatDateTime(item.start)} - ${formatTime(item.end)}
