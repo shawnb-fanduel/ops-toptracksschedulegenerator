@@ -9,25 +9,25 @@
 		body {
 			padding: 2rem 0;
 		}
-		
+
 		.header {
 			text-align: center;
 			margin-bottom: 2rem;
 		}
-		
+
 		.header h1 {
 			margin-bottom: 0.5rem;
 		}
-		
+
 		.file-input-wrapper {
 			position: relative;
 		}
-		
+
 		.file-input-wrapper input[type=file] {
 			position: absolute;
 			left: -9999px;
 		}
-		
+
 		.file-input-label {
 			display: block;
 			padding: 0.75rem;
@@ -38,19 +38,19 @@
 			cursor: pointer;
 			transition: all 0.3s;
 		}
-		
+
 		.file-input-label:hover {
 			background: var(--pico-primary-hover);
 			border-color: var(--pico-primary-focus);
 		}
-		
+
 		.stats {
 			display: grid;
 			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 			gap: 1rem;
 			margin-bottom: 2rem;
 		}
-		
+
 		.stat-card {
 			text-align: center;
 			padding: 1.5rem;
@@ -58,21 +58,21 @@
 			color: white;
 			border-radius: var(--pico-border-radius);
 		}
-		
+
 		.stat-card .value {
 			font-size: 2rem;
 			font-weight: bold;
 			margin-bottom: 0.25rem;
 		}
-		
+
 		.stat-card .label {
 			font-size: 0.875rem;
 			opacity: 0.9;
 		}
-		
+
 		.track-slot {
 			display: grid;
-			grid-template-columns: 200px 1fr 150px;  /* Changed from: 100px 200px 1fr 150px */
+			grid-template-columns: 200px 1fr 150px;
 			gap: 1rem;
 			padding: 1rem;
 			margin-bottom: 0.75rem;
@@ -81,28 +81,50 @@
 			border-radius: var(--pico-border-radius);
 			align-items: center;
 		}
-		
+
 		.track-name {
 			font-weight: 600;
 		}
-		
+
 		.track-time {
 			color: var(--pico-muted-color);
 			font-size: 0.875rem;
 		}
-		
+
 		.track-handle {
 			text-align: right;
 			font-weight: 200;
 			color: var(--pico-ins-color);
 		}
-		
+
+		.threshold-display {
+			display: inline-block;
+			min-width: 80px;
+			text-align: center;
+			padding: 0.25rem 0.5rem;
+			background: var(--pico-primary);
+			color: white;
+			border-radius: var(--pico-border-radius);
+			font-weight: bold;
+		}
+
+		.slider-container {
+			display: flex;
+			align-items: center;
+			gap: 1rem;
+			margin-top: 0.5rem;
+		}
+
+		.slider-container input[type=range] {
+			flex: 1;
+		}
+
 		@media (max-width: 768px) {
 			.track-slot {
 				grid-template-columns: 1fr;
 				gap: 0.5rem;
 			}
-			
+
 			.track-handle {
 				text-align: left;
 			}
@@ -113,14 +135,14 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement</p>
+			<p>Optimized lineup for maximum engagement v0.2.0</p>
 		</div>
-		
+
 		<article>
 			<header>
 				<strong>Input:</strong>
 			</header>
-			
+
 			<div class="grid">
 				<div>
 					<label for="csvFile">Upload CSV File:</label>
@@ -131,7 +153,7 @@
 						</label>
 					</div>
 				</div>
-				
+
 				<div>
 					<label for="startTime">Schedule Start Time:</label>
 					<select id="startTime">
@@ -150,7 +172,7 @@
 						<option value="06:00">6:00 AM</option>
 					</select>
 				</div>
-				
+
 				<div>
 					<label for="endTime">Schedule End Time (Next Day):</label>
 					<select id="endTime">
@@ -165,19 +187,60 @@
 				</div>
 			</div>
 			<details>
-			<summary>Options: </summary>
-			<!-- <h4>Matching Threshold:</h4> -->
-			<label>
-				Required Tracks:
-				<textarea placeholder="track codes that must always be set to active" id="inputAlwaysEnableTrackCodes" rows="5">CD
+			<summary>Options:</summary>
+			<div style="display: grid; gap: 1.5rem;">
+				<div>
+					<label for="thresholdSlider">
+						High Priority Handle Threshold:
+						<div class="slider-container">
+							<input type="range" id="thresholdSlider" min="0" max="1000000" step="50000" value="400000">
+							<span class="threshold-display" id="thresholdValue">$400,000</span>
+						</div>
+						<small>Tracks with handle ≥ this amount will be scheduled earlier</small>
+					</label>
+				</div>
+
+				<div>
+					<label for="inputAlwaysEnableTrackCodes">
+						Required Tracks (Always Active):
+						<textarea placeholder="track codes that must always be set to active" id="inputAlwaysEnableTrackCodes" rows="4">CD
 AQU
-BEL</textarea>
-			</label>
-			<!-- <textarea placeholder="" id="inputText2"></textarea> -->
+BEL
+F1D</textarea>
+					</label>
+				</div>
+
+				<div>
+					<label for="inputHighPriorityBoostTrackCodes">
+						High Priority Boost Tracks (Schedule Earlier):
+						<textarea placeholder="track codes that should be scheduled earlier" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
+					</label>
+				</div>
+
+				<div>
+					<label for="inputLowPriorityTrackCodes">
+						Low Priority Tracks (Schedule Last):
+						<textarea placeholder="track codes that should be scheduled last (e.g., JAPAN, AU1)" id="inputLowPriorityTrackCodes" rows="3"></textarea>
+					</label>
+				</div>
+
+				<div>
+					<label for="inputLowPriorityRegionCodes">
+						Low Priority Region Codes (Schedule Last):
+						<textarea placeholder="region prefixes to penalize (e.g., AU, JP, S69)" id="inputLowPriorityRegionCodes" rows="3">JP1
+JP2
+JP3
+JP4
+AU1
+AU2</textarea>
+					</label>
+					<small>Any track code containing these strings will be scheduled last. Useful for entire regions/countries</small>
+				</div>
+			</div>
 		</details>
 			<button onclick="generateSchedule()">🎯 Generate Schedule</button>
 		</article>
-		
+
 		<div id="results" style="display: none;">
 			<div class="stats">
 				<div class="stat-card">
@@ -189,7 +252,7 @@ BEL</textarea>
 					<div class="label">Scheduled Tracks</div>
 				</div>
 			</div>
-			
+
 			<article>
 				<header>
 					<strong>Output:</strong>
@@ -204,31 +267,41 @@ BEL</textarea>
 <script>
 	// Global variable to store the current schedule
 	let currentSchedule = [];
-	let allTracksData = []; // NEW: Store all tracks for CSV export
+	let allTracksData = []; // Store all tracks for CSV export
+	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
 
-	// *** PRIORITY THRESHOLD: Tracks with handle >= this amount will be chosen earlier ***
-	const HIGH_PRIORITY_HANDLE_THRESHOLD = 400000;
+	// Update threshold display when slider changes
+	document.getElementById('thresholdSlider').addEventListener('change', function(e) {
+		HIGH_PRIORITY_HANDLE_THRESHOLD = parseInt(e.target.value);
+		const formatted = '$' + HIGH_PRIORITY_HANDLE_THRESHOLD.toLocaleString('en-US');
+		document.getElementById('thresholdValue').textContent = formatted;
+	});
 
-	// Update file name display
+	// Update file name display and clear previous results
 	document.getElementById('csvFile').addEventListener('change', function(e) {
 		const fileName = e.target.files[0]?.name || 'Choose file...';
 		document.getElementById('fileName').textContent = '📁 ' + fileName;
+
+		// Clear previous results when a new file is selected
+		currentSchedule = [];
+		allTracksData = [];
+		document.getElementById('results').style.display = 'none';
 	});
 
 	// Parse CSV file
 	function parseCSV(text) {
 		const lines = text.trim().split('\n');
 		const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-		
+
 		return lines.slice(1).map(line => {
 			// Handle quoted values that may contain commas
 			const values = [];
 			let currentValue = '';
 			let inQuotes = false;
-			
+
 			for (let i = 0; i < line.length; i++) {
 				const char = line[i];
-				
+
 				if (char === '"') {
 					inQuotes = !inQuotes;
 				} else if (char === ',' && !inQuotes) {
@@ -239,7 +312,7 @@ BEL</textarea>
 				}
 			}
 			values.push(currentValue.trim().replace(/^"|"$/g, ''));
-			
+
 			const row = {};
 			headers.forEach((header, index) => {
 				row[header] = values[index] || '';
@@ -254,12 +327,56 @@ BEL</textarea>
 		if (!textarea || !textarea.value.trim()) {
 			return [];
 		}
-		
-		// Split by newlines and filter out empty strings
+
 		return textarea.value
 			.split('\n')
 			.map(code => code.trim().toUpperCase())
 			.filter(code => code.length > 0);
+	}
+
+	// Get high priority boost track codes from textarea
+	function getHighPriorityBoostTrackCodes() {
+		const textarea = document.getElementById('inputHighPriorityBoostTrackCodes');
+		if (!textarea || !textarea.value.trim()) {
+			return [];
+		}
+
+		return textarea.value
+			.split('\n')
+			.map(code => code.trim().toUpperCase())
+			.filter(code => code.length > 0);
+	}
+
+	// Get low priority track codes from textarea
+	function getLowPriorityTrackCodes() {
+		const textarea = document.getElementById('inputLowPriorityTrackCodes');
+		if (!textarea || !textarea.value.trim()) {
+			return [];
+		}
+
+		return textarea.value
+			.split('\n')
+			.map(code => code.trim().toUpperCase())
+			.filter(code => code.length > 0);
+	}
+
+	// Get low priority region codes from textarea
+	function getLowPriorityRegionCodes() {
+		const textarea = document.getElementById('inputLowPriorityRegionCodes');
+		if (!textarea || !textarea.value.trim()) {
+			return [];
+		}
+
+		return textarea.value
+			.split('\n')
+			.map(code => code.trim().toUpperCase())
+			.filter(code => code.length > 0);
+	}
+
+	// Check if a track code matches any region code
+	function isTrackInLowPriorityRegion(trackCode, regionCodes) {
+		const upperTrackCode = trackCode.toUpperCase();
+		return regionCodes.some(region => upperTrackCode.includes(region));
 	}
 
 	// Parse handle from string to number
@@ -278,12 +395,22 @@ BEL</textarea>
 		return date;
 	}
 
+	// Round time DOWN to previous 15 minutes
+	function roundDownToQuarter(date) {
+		const minutes = date.getMinutes();
+		const roundedMinutes = Math.floor(minutes / 15) * 15;
+		date.setMinutes(roundedMinutes);
+		date.setSeconds(0);
+		date.setMilliseconds(0);
+		return date;
+	}
+
 	// Format time for display
 	function formatTime(date) {
-		return date.toLocaleTimeString('en-US', { 
-			hour: 'numeric', 
+		return date.toLocaleTimeString('en-US', {
+			hour: 'numeric',
 			minute: '2-digit',
-			hour12: true 
+			hour12: true
 		});
 	}
 
@@ -309,23 +436,18 @@ BEL</textarea>
 			alert('No data to download!');
 			return;
 		}
-		
-		// Create a map of scheduled track codes for quick lookup
+
 		const scheduledTrackCodes = new Set(
 			currentSchedule.map(item => item.track.code)
 		);
-		
-		// Create CSV content with all tracks
+
 		let csvContent = 'Track Name,Track Code,Start Time,End Time,Duration (minutes),Handle,Enabled\n';
-		
+
 		allTracksData.forEach(track => {
 			const isEnabled = scheduledTrackCodes.has(track.code) ? 1 : 0;
-			
-			// Find the schedule item for this track if it exists
 			const scheduleItem = currentSchedule.find(item => item.track.code === track.code);
-			
+
 			if (scheduleItem) {
-				// Track is in the schedule
 				const duration = Math.round((scheduleItem.end - scheduleItem.start) / (1000 * 60));
 				const row = [
 					`"${track.name}"`,
@@ -338,29 +460,27 @@ BEL</textarea>
 				].join(',');
 				csvContent += row + '\n';
 			} else {
-				// Track is NOT in the schedule (disabled)
 				const row = [
 					`"${track.name}"`,
 					track.code,
-					'', // No start time
-					'', // No end time
-					'', // No duration
+					'',
+					'',
+					'',
 					track.handle.toFixed(2),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
 			}
 		});
-		
-		// Create blob and download
+
 		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
 		const link = document.createElement('a');
 		const url = URL.createObjectURL(blob);
-		
+
 		link.setAttribute('href', url);
 		link.setAttribute('download', `racetrack_schedule_${new Date().toISOString().split('T')[0]}.csv`);
 		link.style.visibility = 'hidden';
-		
+
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
@@ -371,12 +491,16 @@ BEL</textarea>
 		const fileInput = document.getElementById('csvFile');
 		const startTimeStr = document.getElementById('startTime').value;
 		const endTimeStr = document.getElementById('endTime').value;
-		
+
 		if (!fileInput.files[0]) {
 			alert('Please upload a CSV file first!');
 			return;
 		}
-		
+
+		// Clear previous data
+		currentSchedule = [];
+		allTracksData = [];
+
 		const reader = new FileReader();
 		reader.onload = function(e) {
 			try {
@@ -395,39 +519,65 @@ BEL</textarea>
 	}
 
 	function processSchedule(data, startTimeStr, endTimeStr) {
-		// Get required track codes
 		const requiredTrackCodes = getRequiredTrackCodes();
-		
+		const highPriorityBoostTrackCodes = getHighPriorityBoostTrackCodes();
+		const lowPriorityTrackCodes = getLowPriorityTrackCodes();
+		const lowPriorityRegionCodes = getLowPriorityRegionCodes();
+
 		// Parse ALL tracks first (for CSV export)
 		allTracksData = data.map(track => {
 			const handle = parseHandle(track['Handle']);
+			const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
+			const isRequired = requiredTrackCodes.includes(trackCode);
+			const isHighPriorityBoost = highPriorityBoostTrackCodes.includes(trackCode);
+			const isLowPriority = lowPriorityTrackCodes.includes(trackCode);
+			const isLowPriorityRegion = isTrackInLowPriorityRegion(trackCode, lowPriorityRegionCodes);
+
+			let score = handle;
+
+			// Apply scoring adjustments
+			if (isRequired) {
+				score += 10000000; // Huge boost for required tracks
+			}
+
+			if (isHighPriorityBoost) {
+				score += 5000000; // Large boost for high priority tracks
+			}
+
+			if (isLowPriority || isLowPriorityRegion) {
+				score -= 10000000; // Huge penalty for low priority tracks/regions
+			}
+
 			const earliestStart = new Date(track['Earliest Start Time']);
 			const lastPost = new Date(track['Last Post Start Date Time']);
-			
+
 			return {
 				name: track['TVG Track Name'],
 				code: track['TVG Track Code'],
 				earliestStart: earliestStart,
 				lastPost: lastPost,
 				handle: handle,
-				score: handle,
+				score: score,
 				isOnTV: track['Is On TV'] === '1',
-				isHighPriority: handle >= HIGH_PRIORITY_HANDLE_THRESHOLD
+				isHighPriority: score >= HIGH_PRIORITY_HANDLE_THRESHOLD,
+				isRequired: isRequired,
+				isHighPriorityBoost: isHighPriorityBoost,
+				isLowPriority: isLowPriority || isLowPriorityRegion
 			};
-		}).filter(track => 
-			!isNaN(track.earliestStart.getTime()) && 
+		}).filter(track =>
+			!isNaN(track.earliestStart.getTime()) &&
 			!isNaN(track.lastPost.getTime())
 		);
-		
+
 		// Filter tracks - either marked as enabled OR in the required list
 		const activeTracks = data.filter(track => {
 			const isEnabled = track['Active'] && track['Active'].toLowerCase() === 'enabled';
 			const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
 			const isRequired = requiredTrackCodes.includes(trackCode);
-			
+
 			return isEnabled || isRequired;
 		});
-		
+
 		if (activeTracks.length === 0) {
 			document.getElementById('results').innerHTML = `
 				<article style="background: var(--pico-del-color); color: white;">
@@ -437,107 +587,152 @@ BEL</textarea>
 			document.getElementById('results').style.display = 'block';
 			return;
 		}
-		
+
 		// Parse and score tracks
 		const tracks = activeTracks.map(track => {
 			const handle = parseHandle(track['Handle']);
+			const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
+			const isRequired = requiredTrackCodes.includes(trackCode);
+			const isHighPriorityBoost = highPriorityBoostTrackCodes.includes(trackCode);
+			const isLowPriority = lowPriorityTrackCodes.includes(trackCode);
+			const isLowPriorityRegion = isTrackInLowPriorityRegion(trackCode, lowPriorityRegionCodes);
+
+			let score = handle;
+
+			// Apply scoring adjustments
+			if (isRequired) {
+				score += 10000000;
+			}
+
+			if (isHighPriorityBoost) {
+				score += 5000000;
+			}
+
+			if (isLowPriority || isLowPriorityRegion) {
+				score -= 10000000;
+			}
+
 			const earliestStart = new Date(track['Earliest Start Time']);
 			const lastPost = new Date(track['Last Post Start Date Time']);
-			
+
 			return {
 				name: track['TVG Track Name'],
 				code: track['TVG Track Code'],
 				earliestStart: earliestStart,
 				lastPost: lastPost,
 				handle: handle,
-				score: handle,
+				score: score,
 				isOnTV: track['Is On TV'] === '1',
-				isHighPriority: handle >= HIGH_PRIORITY_HANDLE_THRESHOLD
+				isHighPriority: score >= HIGH_PRIORITY_HANDLE_THRESHOLD,
+				isRequired: isRequired,
+				isHighPriorityBoost: isHighPriorityBoost,
+				isLowPriority: isLowPriority || isLowPriorityRegion
 			};
-		}).filter(track => 
-			!isNaN(track.earliestStart.getTime()) && 
+		}).filter(track =>
+			!isNaN(track.earliestStart.getTime()) &&
 			!isNaN(track.lastPost.getTime())
 		);
-		
-		// Set up schedule boundaries for score calculation
+
+		// Calculate hybrid score: 80% time-based, 20% handle-based
+		// Find min/max times to normalize
+		const minTime = Math.min(...tracks.map(t => t.earliestStart.getTime()));
+		const maxTime = Math.max(...tracks.map(t => t.earliestStart.getTime()));
+		const timeRange = maxTime - minTime || 1; // avoid divide by zero
+
+		// Find min/max handles to normalize
+		const minHandle = Math.min(...tracks.map(t => t.handle));
+		const maxHandle = Math.max(...tracks.map(t => t.handle));
+		const handleRange = maxHandle - minHandle || 1;
+
+		// Calculate hybrid score for each track
+		tracks.forEach(track => {
+			// Time score: EARLIER times = higher priority (0 to 1, inverted)
+			const timeNormalized = 1 - ((track.earliestStart.getTime() - minTime) / timeRange);
+
+			// Handle score: higher handles = higher priority (0 to 1)
+			const handleNormalized = (track.handle - minHandle) / handleRange;
+
+			// Apply region/priority penalties to handle before combining
+			let adjustedHandle = track.handle;
+			if (track.isLowPriority) adjustedHandle -= 10000000;
+			if (track.isRequired) adjustedHandle += 10000000;
+			if (track.isHighPriorityBoost) adjustedHandle += 5000000;
+
+			const adjustedHandleNormalized = Math.max(0, (adjustedHandle - minHandle) / handleRange);
+
+			// Hybrid score: 80% time, 20% handle
+			track.hybridScore = (0.8 * timeNormalized) + (0.2 * adjustedHandleNormalized);
+		});
+
+		// Sort by hybrid score (highest first)
+		tracks.sort((a, b) => b.hybridScore - a.hybridScore);
+
+		// Set up schedule boundaries
 		const referenceDate = tracks[0].earliestStart;
 		const scheduleStart = new Date(referenceDate);
 		const [startHour, startMinute] = startTimeStr.split(':').map(Number);
 		scheduleStart.setHours(startHour, startMinute, 0, 0);
-		
-		// *** COMPOSITE SCORING: High priority tracks = pure handle, low priority = handle + time bonus ***
-		tracks.forEach(track => {
-			if (track.isHighPriority) {
-				// High handle tracks: score based purely on handle
-				track.score = track.handle;
-			} else {
-				// Lower handle tracks: bonus for starting earlier
-				// Calculate hours from schedule start
-				const hoursFromStart = (track.earliestStart - scheduleStart) / (1000 * 60 * 60);
-				
-				// Give earlier tracks a bonus (subtract penalty for later tracks)
-				// This makes tracks starting at 3:40 AM score higher than those at noon
-				const timeBonus = Math.max(0, 100000 - (hoursFromStart * 10000));
-				track.score = track.handle + timeBonus;
-			}
-		});
-		
-		// Sort by composite score - highest first
-		tracks.sort((a, b) => b.score - a.score);
-		
+
 		const scheduleEnd = new Date(scheduleStart);
 		scheduleEnd.setDate(scheduleEnd.getDate() + 1);
 		const [endHour, endMinute] = endTimeStr.split(':').map(Number);
 		scheduleEnd.setHours(endHour, endMinute, 0, 0);
-		
-		// *** ARRAY OF AVAILABLE START TIMES - ALL INITIALIZED TO 2:00 AM (scheduleStart) ***
+
+		// Array of available start times
 		const NUM_SLOTS = 6;
 		const slotAvailableStartTimes = Array(NUM_SLOTS).fill(null).map(() => new Date(scheduleStart));
-		
+
 		// Schedule result
 		const schedule = [];
-		
-		// Process each track in priority order (highest score first)
+		const unschedulableTracks = []; // Track tracks that couldn't be scheduled
+
+		// Process each track in priority order
 		for (const track of tracks) {
 			// Find the slot that becomes available earliest
 			let earliestSlotIndex = 0;
 			let earliestAvailableTime = slotAvailableStartTimes[0];
-			
+
 			for (let i = 1; i < NUM_SLOTS; i++) {
 				if (slotAvailableStartTimes[i] < earliestAvailableTime) {
 					earliestAvailableTime = slotAvailableStartTimes[i];
 					earliestSlotIndex = i;
 				}
 			}
-			
+
 			// Track starts exactly when the slot becomes available
 			let actualStart = new Date(earliestAvailableTime);
-			
+
+			// Skip if the slot doesn't become available until after the track finishes racing
+			if (actualStart > track.lastPost) {
+				unschedulableTracks.push(track);
+				continue;
+			}
+
 			// Calculate when this track ends (use its last post time)
 			let actualEnd = new Date(track.lastPost);
-			
-			// Add buffer for high-scoring tracks (15 minutes for races running late)
-			if (track.handle > 260000) {
+
+			// Add small buffer for high-handle tracks (15 minutes for races running late)
+			if (track.handle > HIGH_PRIORITY_HANDLE_THRESHOLD) {
 				actualEnd.setMinutes(actualEnd.getMinutes() + 15);
 			}
-			
+
 			// Round end time to nearest quarter hour
 			actualEnd = roundToQuarter(actualEnd);
-			
+
 			// Trim if extends past schedule end
 			if (actualEnd > scheduleEnd) {
 				actualEnd = new Date(scheduleEnd);
 			}
-			
+
 			// Make sure end is after start
 			if (actualEnd <= actualStart) {
 				actualEnd = new Date(actualStart);
 				actualEnd.setMinutes(actualEnd.getMinutes() + 15);
 			}
-			
-			// Update the array: this slot's next available start time is when this track ends
+
+			// Update the slot's next available start time
 			slotAvailableStartTimes[earliestSlotIndex] = new Date(actualEnd);
-			
+
 			// Add to schedule
 			schedule.push({
 				slot: earliestSlotIndex + 1,
@@ -546,7 +741,7 @@ BEL</textarea>
 				end: actualEnd
 			});
 		}
-		
+
 		// Sort schedule by start time, then by slot
 		schedule.sort((a, b) => {
 			if (a.start.getTime() !== b.start.getTime()) {
@@ -554,26 +749,26 @@ BEL</textarea>
 			}
 			return a.slot - b.slot;
 		});
-		
+
 		// Store schedule globally for CSV export
 		currentSchedule = schedule;
-		
+
 		// Display results
-		displaySchedule(schedule, tracks);
+		displaySchedule(schedule, tracks, unschedulableTracks);
 	}
 
-	function displaySchedule(schedule, tracks) {
+	function displaySchedule(schedule, tracks, unschedulableTracks) {
 		// Update stats
 		document.getElementById('totalTracks').textContent = tracks.length;
 		document.getElementById('scheduledTracks').textContent = schedule.length;
-		
+
 		// Build schedule HTML
 		let scheduleHTML = '';
 		schedule.forEach((item, index) => {
 			const duration = (item.end - item.start) / (1000 * 60); // minutes
 			scheduleHTML += `
 				<div class="track-slot">
-					<div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}</div>
+					<div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}${item.track.isHighPriorityBoost ? ' ⬆️' : ''}${item.track.isLowPriority ? ' 🔻' : ''}</div>
 					<div class="track-time">
 						${formatDateTime(item.start)} - ${formatTime(item.end)}
 						<br><small>(${Math.round(duration)} min)</small>
@@ -585,10 +780,28 @@ BEL</textarea>
 				</div>
 			`;
 		});
-		
+
+		// Add section for unschedulable tracks if any
+		if (unschedulableTracks.length > 0) {
+			scheduleHTML += `
+				<hr>
+				<article style="background: var(--pico-del-color); color: white; padding: 1.5rem; border-radius: var(--pico-border-radius); margin-top: 1.5rem;">
+					<h4>⚠️ Tracks That Couldn't Be Scheduled (Disable These):</h4>
+					<p>These tracks have no available slots:</p>
+					<ul>
+			`;
+			unschedulableTracks.forEach(track => {
+				scheduleHTML += `<li><strong>${track.code}</strong> - ${track.name} (Last Post: ${formatDateTime(track.lastPost)})</li>`;
+			});
+			scheduleHTML += `
+					</ul>
+				</article>
+			`;
+		}
+
 		document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
 		document.getElementById('results').style.display = 'block';
-		
+
 		// Scroll to results
 		document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 	}
