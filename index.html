@@ -135,7 +135,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.2.0</p>
+			<p>Optimized lineup for maximum engagement v0.3.0</p>
 		</div>
 
 		<article>
@@ -191,12 +191,12 @@
 			<div style="display: grid; gap: 1.5rem;">
 				<div>
 					<label for="thresholdSlider">
-						High Priority Handle Threshold:
+						High Priority Engagement Threshold:
 						<div class="slider-container">
-							<input type="range" id="thresholdSlider" min="0" max="1000000" step="50000" value="400000">
-							<span class="threshold-display" id="thresholdValue">$400,000</span>
+							<input type="range" id="thresholdSlider" min="0" max="1000000" step="50000" value="300000">
+							<span class="threshold-display" id="thresholdValue">3.0</span>
 						</div>
-						<small>Tracks with handle ≥ this amount will be scheduled earlier</small>
+						<small>Tracks with engagement ≥ this amount will be scheduled earlier</small>
 					</label>
 				</div>
 
@@ -220,21 +220,20 @@ F1D</textarea>
 				<div>
 					<label for="inputLowPriorityTrackCodes">
 						Low Priority Tracks (Schedule Last):
-						<textarea placeholder="track codes that should be scheduled last (e.g., JAPAN, AU1)" id="inputLowPriorityTrackCodes" rows="3"></textarea>
+						<textarea placeholder="track codes that should be scheduled last" id="inputLowPriorityTrackCodes" rows="3">JP1
+JP2
+AU1
+AU2
+						</textarea>
 					</label>
 				</div>
 
 				<div>
 					<label for="inputLowPriorityRegionCodes">
 						Low Priority Region Codes (Schedule Last):
-						<textarea placeholder="region prefixes to penalize (e.g., AU, JP, S69)" id="inputLowPriorityRegionCodes" rows="3">JP1
-JP2
-JP3
-JP4
-AU1
-AU2</textarea>
+						<textarea placeholder="region prefixes to penalize" id="inputLowPriorityRegionCodes" rows="3">AU
+JP</textarea>
 					</label>
-					<small>Any track code containing these strings will be scheduled last. Useful for entire regions/countries</small>
 				</div>
 			</div>
 		</details>
@@ -268,12 +267,17 @@ AU2</textarea>
 	// Global variable to store the current schedule
 	let currentSchedule = [];
 	let allTracksData = []; // Store all tracks for CSV export
-	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
+	let HIGH_PRIORITY_HANDLE_THRESHOLD = 400000; // Will be updated by slider
+
+	// Format handle as anonymized value (divide by 100,000)
+	function parseHandle(handle) {
+		return (handle / 100000).toFixed(1);
+	}
 
 	// Update threshold display when slider changes
 	document.getElementById('thresholdSlider').addEventListener('change', function(e) {
 		HIGH_PRIORITY_HANDLE_THRESHOLD = parseInt(e.target.value);
-		const formatted = '$' + HIGH_PRIORITY_HANDLE_THRESHOLD.toLocaleString('en-US');
+		const formatted = parseHandle(HIGH_PRIORITY_HANDLE_THRESHOLD);
 		document.getElementById('thresholdValue').textContent = formatted;
 	});
 
@@ -441,7 +445,7 @@ AU2</textarea>
 			currentSchedule.map(item => item.track.code)
 		);
 
-		let csvContent = 'Track Name,Track Code,Start Time,End Time,Duration (minutes),Handle,Enabled\n';
+		let csvContent = 'Track Name,Track Code,Start Time,End Time,Duration (minutes),Engagement,Enabled\n';
 
 		allTracksData.forEach(track => {
 			const isEnabled = scheduledTrackCodes.has(track.code) ? 1 : 0;
@@ -455,7 +459,7 @@ AU2</textarea>
 					formatDateTimeForCSV(scheduleItem.start),
 					formatDateTimeForCSV(scheduleItem.end),
 					duration,
-					track.handle.toFixed(2),
+					parseHandle(track.handle),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
@@ -466,7 +470,7 @@ AU2</textarea>
 					'',
 					'',
 					'',
-					track.handle.toFixed(2),
+					parseHandle(track.handle),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
@@ -773,10 +777,7 @@ AU2</textarea>
 						${formatDateTime(item.start)} - ${formatTime(item.end)}
 						<br><small>(${Math.round(duration)} min)</small>
 					</div>
-					<div class="track-handle">$${item.track.handle.toLocaleString('en-US', {
-						minimumFractionDigits: 2,
-						maximumFractionDigits: 2
-					})}</div>
+					<div class="track-handle">$${Math.round(item.track.handle).toLocaleString('en-US')}</div>
 				</div>
 			`;
 		});
@@ -787,7 +788,7 @@ AU2</textarea>
 				<hr>
 				<article style="background: var(--pico-del-color); color: white; padding: 1.5rem; border-radius: var(--pico-border-radius); margin-top: 1.5rem;">
 					<h4>⚠️ Tracks That Couldn't Be Scheduled (Disable These):</h4>
-					<p>These tracks have no available slots:</p>
+					<p>These tracks have no available slots because all slots are full before they finish racing:</p>
 					<ul>
 			`;
 			unschedulableTracks.forEach(track => {
