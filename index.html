@@ -135,7 +135,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.3.0</p>
+			<p>Optimized lineup for maximum engagement v0.4.0</p>
 		</div>
 
 		<article>
@@ -213,8 +213,9 @@ F1D</textarea>
 				<div>
 					<label for="inputHighPriorityBoostTrackCodes">
 						High Priority Boost Tracks (Schedule Earlier):
-						<textarea placeholder="track codes that should be scheduled earlier" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
+						<textarea placeholder="track codes that should be scheduled earlier (e.g., PID)" id="inputHighPriorityBoostTrackCodes" rows="4">PID</textarea>
 					</label>
+					<small>These tracks will receive a positive score boost to be handled earlier in the day, regardless of handle</small>
 				</div>
 
 				<div>
@@ -223,9 +224,9 @@ F1D</textarea>
 						<textarea placeholder="track codes that should be scheduled last" id="inputLowPriorityTrackCodes" rows="3">JP1
 JP2
 AU1
-AU2
-						</textarea>
+AU2</textarea>
 					</label>
+					<small>Exact track codes to penalize</small>
 				</div>
 
 				<div>
@@ -234,6 +235,7 @@ AU2
 						<textarea placeholder="region prefixes to penalize" id="inputLowPriorityRegionCodes" rows="3">AU
 JP</textarea>
 					</label>
+					<small>Any track code containing these strings will be scheduled last. Useful for entire regions/countries</small>
 				</div>
 			</div>
 		</details>
@@ -267,17 +269,19 @@ JP</textarea>
 	// Global variable to store the current schedule
 	let currentSchedule = [];
 	let allTracksData = []; // Store all tracks for CSV export
-	let HIGH_PRIORITY_HANDLE_THRESHOLD = 400000; // Will be updated by slider
+	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
+	const MIN_SCHEDULE_DURATION_MINUTES = 15; // Flat minimum - a track must get MORE than this to be worth a slot
 
 	// Format handle as anonymized value (divide by 100,000)
-	function parseHandle(handle) {
+	function formatHandleAnonymized(handle) {
 		return (handle / 100000).toFixed(1);
 	}
 
-	// Update threshold display when slider changes
-	document.getElementById('thresholdSlider').addEventListener('change', function(e) {
+	// Update threshold display instantly while dragging (input fires continuously,
+	// change only fires once the slider is released)
+	document.getElementById('thresholdSlider').addEventListener('input', function(e) {
 		HIGH_PRIORITY_HANDLE_THRESHOLD = parseInt(e.target.value);
-		const formatted = parseHandle(HIGH_PRIORITY_HANDLE_THRESHOLD);
+		const formatted = formatHandleAnonymized(HIGH_PRIORITY_HANDLE_THRESHOLD);
 		document.getElementById('thresholdValue').textContent = formatted;
 	});
 
@@ -409,6 +413,20 @@ JP</textarea>
 		return date;
 	}
 
+	// Round time UP to the next 15 minutes (never down) - used for end times so a
+	// race's last few minutes never get clipped off by rounding down
+	function roundUpToQuarter(date) {
+		const result = new Date(date);
+		const minutes = result.getMinutes();
+		const remainder = minutes % 15;
+		if (remainder !== 0 || result.getSeconds() > 0 || result.getMilliseconds() > 0) {
+			result.setMinutes(minutes + (15 - remainder));
+		}
+		result.setSeconds(0);
+		result.setMilliseconds(0);
+		return result;
+	}
+
 	// Format time for display
 	function formatTime(date) {
 		return date.toLocaleTimeString('en-US', {
@@ -459,7 +477,7 @@ JP</textarea>
 					formatDateTimeForCSV(scheduleItem.start),
 					formatDateTimeForCSV(scheduleItem.end),
 					duration,
-					parseHandle(track.handle),
+					formatHandleAnonymized(track.handle),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
@@ -470,7 +488,7 @@ JP</textarea>
 					'',
 					'',
 					'',
-					parseHandle(track.handle),
+					formatHandleAnonymized(track.handle),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
@@ -668,11 +686,59 @@ JP</textarea>
 			track.hybridScore = (0.8 * timeNormalized) + (0.2 * adjustedHandleNormalized);
 		});
 
-		// Sort by hybrid score (highest first)
-		tracks.sort((a, b) => b.hybridScore - a.hybridScore);
+		// Three-tier scheduling order instead of one blended score. A single fuzzy
+		// "close scores swap on duration" rule let a below-threshold short track (like
+		// Thistledown) jump a genuinely higher-priority track (like Horseshoe, above
+		// your handle threshold) just because it was shorter - that's not what we want.
+		//
+		// Tier 0 (Priority): required / boosted / above your handle threshold.
+		//   Always scheduled first, by hybrid score. Nothing bumps these.
+		// Tier 1 (Regular): everyone else. Scheduled by EARLIEST DEADLINE FIRST
+		//   (soonest last-post time) so a short, tightly-windowed track (e.g. an
+		//   early-morning overseas meet) gets packed in before a longer regular
+		//   track that can absorb a later start without losing its whole card -
+		//   but this competition never reaches into Tier 0's slots.
+		// Tier 2 (Low priority): your AU/JP-style penalized tracks, scheduled last.
+		function trackTier(t) {
+			if (t.isLowPriority) return 2;
+			if (t.isHighPriority) return 0;
+			return 1;
+		}
+
+		tracks.sort((a, b) => {
+			const tierA = trackTier(a);
+			const tierB = trackTier(b);
+			if (tierA !== tierB) return tierA - tierB;
+
+			if (tierA === 1) {
+				// Regular tier: earliest deadline first, hybrid score as tiebreaker
+				const deadlineDiff = a.lastPost.getTime() - b.lastPost.getTime();
+				if (deadlineDiff !== 0) return deadlineDiff;
+			}
+
+			return b.hybridScore - a.hybridScore;
+		});
 
 		// Set up schedule boundaries
-		const referenceDate = tracks[0].earliestStart;
+		// Use the most common calendar date among all tracks as the reference day,
+		// rather than tracks[0] (fragile: after hybrid-score sorting, tracks[0] could be
+		// an outlier row like an overseas track with a different race-day date, which
+		// would skew the entire schedule window and wrongly flag normal tracks as unschedulable)
+		const dateCounts = {};
+		tracks.forEach(track => {
+			const dateKey = track.earliestStart.toDateString();
+			dateCounts[dateKey] = (dateCounts[dateKey] || 0) + 1;
+		});
+		let mostCommonDateKey = tracks[0].earliestStart.toDateString();
+		let maxDateCount = 0;
+		for (const [dateKey, count] of Object.entries(dateCounts)) {
+			if (count > maxDateCount) {
+				maxDateCount = count;
+				mostCommonDateKey = dateKey;
+			}
+		}
+		const referenceTrack = tracks.find(t => t.earliestStart.toDateString() === mostCommonDateKey);
+		const referenceDate = referenceTrack.earliestStart;
 		const scheduleStart = new Date(referenceDate);
 		const [startHour, startMinute] = startTimeStr.split(':').map(Number);
 		scheduleStart.setHours(startHour, startMinute, 0, 0);
@@ -715,15 +781,16 @@ JP</textarea>
 			// Calculate when this track ends (use its last post time)
 			let actualEnd = new Date(track.lastPost);
 
-			// Add small buffer for high-handle tracks (15 minutes for races running late)
+			// Tracks above your handle threshold get a flat 15-minute buffer past their
+			// actual last race (room for a late result/photo finish)
 			if (track.handle > HIGH_PRIORITY_HANDLE_THRESHOLD) {
 				actualEnd.setMinutes(actualEnd.getMinutes() + 15);
 			}
 
-			// Round end time to nearest quarter hour
-			actualEnd = roundToQuarter(actualEnd);
-
-			// Trim if extends past schedule end
+			// Always round UP to the later quarter hour (never down/nearest), so we
+			// never clip time off a race - except when that would push past the
+			// schedule's own end time, in which case cap there instead
+			actualEnd = roundUpToQuarter(actualEnd);
 			if (actualEnd > scheduleEnd) {
 				actualEnd = new Date(scheduleEnd);
 			}
@@ -732,6 +799,15 @@ JP</textarea>
 			if (actualEnd <= actualStart) {
 				actualEnd = new Date(actualStart);
 				actualEnd.setMinutes(actualEnd.getMinutes() + 15);
+			}
+
+			// Skip tracks that would only get a token sliver of airtime (e.g. 15 minutes
+			// of a card that's basically over) - flag for disabling instead of scheduling
+			// Importantly, don't advance the slot's availability time in this case, since we never actually used it.
+			const resultingDuration = (actualEnd - actualStart) / (1000 * 60);
+			if (resultingDuration <= MIN_SCHEDULE_DURATION_MINUTES) {
+				unschedulableTracks.push(track);
+				continue;
 			}
 
 			// Update the slot's next available start time
@@ -777,7 +853,10 @@ JP</textarea>
 						${formatDateTime(item.start)} - ${formatTime(item.end)}
 						<br><small>(${Math.round(duration)} min)</small>
 					</div>
-					<div class="track-handle">$${Math.round(item.track.handle).toLocaleString('en-US')}</div>
+					<div class="track-handle">$${item.track.handle.toLocaleString('en-US', {
+						minimumFractionDigits: 2,
+						maximumFractionDigits: 2
+					})}</div>
 				</div>
 			`;
 		});
@@ -788,7 +867,7 @@ JP</textarea>
 				<hr>
 				<article style="background: var(--pico-del-color); color: white; padding: 1.5rem; border-radius: var(--pico-border-radius); margin-top: 1.5rem;">
 					<h4>⚠️ Tracks That Couldn't Be Scheduled (Disable These):</h4>
-					<p>These tracks have no available slots because all slots are full before they finish racing:</p>
+					<p>These tracks have no available slot before they finish racing:</p>
 					<ul>
 			`;
 			unschedulableTracks.forEach(track => {
