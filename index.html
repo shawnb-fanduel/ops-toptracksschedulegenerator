@@ -135,8 +135,8 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
+			<p>Optimized lineup for maximum engagement v0.4.1</p>
 		</div>
-
 		<article>
 			<header>
 				<strong>Input:</strong>
@@ -803,9 +803,8 @@ JP</textarea>
 
 			// Skip tracks that would only get a token sliver of airtime (e.g. 15 minutes
 			// of a card that's basically over) - flag for disabling instead of scheduling
-			// Importantly, don't advance the slot's availability time in this case, since we never actually used it.
 			const resultingDuration = (actualEnd - actualStart) / (1000 * 60);
-			if (resultingDuration <= MIN_SCHEDULE_DURATION_MINUTES) {
+			if (resultingDuration < MIN_SCHEDULE_DURATION_MINUTES) {
 				unschedulableTracks.push(track);
 				continue;
 			}
