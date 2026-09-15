@@ -148,7 +148,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.5.0</p>
+			<p>Optimized lineup for maximum engagement v0.5.1</p>
 		</div>
 		<article>
 			<header>
@@ -226,7 +226,7 @@ F1D</textarea>
 				<div>
 					<label for="inputHighPriorityBoostTrackCodes">
 						High Priority Boost Tracks (Schedule Earlier):
-						<textarea placeholder="track codes that should be scheduled earlier (e.g., PID)" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
+						<textarea placeholder="track codes that should be scheduled earlier (e.g., KD)" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
 					</label>
 					<small>These tracks will receive a positive score boost to be handled earlier in the day, regardless of handle</small>
 				</div>
@@ -922,79 +922,152 @@ JP</textarea>
 		document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
 	}
 
-	// Manually reposition a scheduled track to the next (or previous) genuinely
-	// free opening across all lanes - it never overlaps with another track, and it
-	// never displaces anything else, it just looks for real empty room. Preserves
-	// the track's current on-air duration and relocates that same-length block.
+	// Given a track, compute its "natural" end time from its own CSV data alone
+	// (last post + threshold buffer, rounded up) - the same rule the initial
+	// scheduler uses, with no awareness yet of what's next to it in the timeline.
+	function computeNaturalEnd(track) {
+		let end = new Date(track.lastPost);
+		if (track.handle > HIGH_PRIORITY_HANDLE_THRESHOLD) {
+			end.setMinutes(end.getMinutes() + 15);
+		}
+		return roundUpToQuarter(end);
+	}
+
+	// A schedule item's natural end (own CSV data), capped only by the schedule's
+	// own hard end-of-day boundary - never by a neighbor. Overlaps this creates
+	// with whatever's next in the lane are resolved by cascadeLane(), which
+	// pushes the rest of that lane later rather than truncating this track.
+	function naturalEndCappedAtScheduleEnd(item) {
+		let end = computeNaturalEnd(item.track);
+		if (end.getTime() > currentScheduleEnd.getTime()) {
+			end = new Date(currentScheduleEnd.getTime());
+		}
+		if (end.getTime() <= item.start.getTime()) {
+			end = new Date(item.start.getTime() + 15 * 60000); // safety floor
+		}
+		return end;
+	}
+
+	// Find another lane where an item could sit at its own natural [startMs, endMs)
+	// window with zero conflicts - used so a cascade doesn't blindly stack
+	// everything into one lane's evening hours when a different lane is sitting
+	// idle at that exact time.
+	function findLaneForWindow(item, startMs, endMs, excludeLane) {
+		for (let lane = 1; lane <= NUM_SLOTS; lane++) {
+			if (lane === excludeLane) continue;
+			const conflicts = currentSchedule.some(other =>
+				other !== item && other.slot === lane &&
+				!(endMs <= other.start.getTime() || startMs >= other.end.getTime())
+			);
+			if (!conflicts) return lane;
+		}
+		return null;
+	}
+
+	// Walk one lane in start-time order. If a track now overlaps the one before
+	// it, first check whether a DIFFERENT lane is free at this track's own
+	// natural time - if so, move it there instead of cramming everything later
+	// into a single lane (this is what was clustering AU tracks at midnight
+	// while 3:30 PM / 7:00 PM openings sat unused elsewhere). Only if no other
+	// lane has room does it get pushed later within the current lane. Anything
+	// left with no real room in the day at all is pulled out and flagged for
+	// disabling, same as the initial scheduler does.
+	function cascadeLane(laneNumber) {
+		let laneItems = currentSchedule
+			.filter(item => item.slot === laneNumber)
+			.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+		for (let i = 1; i < laneItems.length; i++) {
+			const prev = laneItems[i - 1];
+			const cur = laneItems[i];
+			if (cur.start.getTime() < prev.end.getTime()) {
+				const naturalEnd = naturalEndCappedAtScheduleEnd({ track: cur.track, start: cur.start });
+				const betterLane = findLaneForWindow(cur, cur.start.getTime(), naturalEnd.getTime(), laneNumber);
+
+				if (betterLane !== null) {
+					// Free room elsewhere at its own natural time - relocate it there,
+					// untouched, and remove it from this lane's sequence
+					cur.slot = betterLane;
+					cur.end = naturalEnd;
+					laneItems.splice(i, 1);
+					i--;
+					continue;
+				}
+
+				// No better lane available - push it later within this lane
+				const durationMs = cur.end.getTime() - cur.start.getTime();
+				cur.start = new Date(prev.end.getTime());
+				cur.end = new Date(cur.start.getTime() + durationMs);
+			}
+		}
+
+		// Clamp EVERY remaining item in this lane at the schedule's own end -
+		// not just the last one, since a cascade can push an earlier item past
+		// the boundary too if too much got crammed into one lane
+		const stillOverflowing = [];
+		laneItems.forEach(item => {
+			if (item.end.getTime() > currentScheduleEnd.getTime()) {
+				item.end = new Date(currentScheduleEnd.getTime());
+			}
+			if (item.start.getTime() >= currentScheduleEnd.getTime() || item.end.getTime() <= item.start.getTime()) {
+				stillOverflowing.push(item);
+			}
+		});
+
+		stillOverflowing.forEach(item => {
+			const idx = currentSchedule.indexOf(item);
+			if (idx !== -1) {
+				currentSchedule.splice(idx, 1);
+				lastUnschedulableTracks.push(item.track);
+			}
+		});
+	}
+
+	// Manually reposition a scheduled track by swapping it with its immediate
+	// neighbor in the chronological list. A packed multi-lane schedule almost
+	// never has a truly empty gap anywhere, so "find free room" mostly just fails -
+	// swapping with the adjacent track is simple, always works unless you're
+	// already at the very start/end, and typically moves by hours per click since
+	// neighbors are rarely close together.
+	//
+	// After swapping start times (and lanes, so each track's timeline stays
+	// internally consistent), each track gets its FULL natural duration from its
+	// own CSV data - it is never truncated just because something else already
+	// occupies that lane a bit later. If that creates an overlap, cascadeLane()
+	// pushes the rest of that lane later to make room instead.
 	function moveTrack(trackCode, direction) {
-		const idx = currentSchedule.findIndex(item => item.track.code === trackCode);
+		const sorted = [...currentSchedule].sort((a, b) => a.start - b.start || a.slot - b.slot);
+		const idx = sorted.findIndex(item => item.track.code === trackCode);
 		if (idx === -1) return;
-		const item = currentSchedule[idx];
-		const durationMs = item.end.getTime() - item.start.getTime();
-		const currentStartMs = item.start.getTime();
 
-		// Occupied intervals per lane, excluding the track being moved
-		const laneIntervals = {};
-		for (let lane = 1; lane <= NUM_SLOTS; lane++) laneIntervals[lane] = [];
-		currentSchedule.forEach((other, i) => {
-			if (i === idx) return;
-			laneIntervals[other.slot].push({ start: other.start.getTime(), end: other.end.getTime() });
-		});
-
-		function fitsInLane(lane, startMs, endMs) {
-			return laneIntervals[lane].every(iv => endMs <= iv.start || startMs >= iv.end);
-		}
-
-		function findLaneFor(startMs, endMs) {
-			for (let lane = 1; lane <= NUM_SLOTS; lane++) {
-				if (fitsInLane(lane, startMs, endMs)) return lane;
-			}
-			return null;
-		}
-
-		// Candidate times to try: every other track's start/end, plus the
-		// schedule's own start/end boundaries
-		const boundarySet = new Set([currentScheduleStart.getTime(), currentScheduleEnd.getTime()]);
-		currentSchedule.forEach((other, i) => {
-			if (i === idx) return;
-			boundarySet.add(other.start.getTime());
-			boundarySet.add(other.end.getTime());
-		});
-
-		let placed = false;
-		if (direction === 'later') {
-			const candidates = Array.from(boundarySet).filter(t => t > currentStartMs).sort((a, b) => a - b);
-			for (const t of candidates) {
-				const endMs = t + durationMs;
-				if (endMs > currentScheduleEnd.getTime()) break; // ran out of room going later
-				const lane = findLaneFor(t, endMs);
-				if (lane !== null) {
-					item.start = new Date(t);
-					item.end = new Date(endMs);
-					item.slot = lane;
-					placed = true;
-					break;
-				}
-			}
-		} else {
-			const candidates = Array.from(boundarySet).filter(t => t < currentStartMs).sort((a, b) => b - a);
-			for (const t of candidates) {
-				if (t < currentScheduleStart.getTime()) break; // ran out of room going earlier
-				const endMs = t + durationMs;
-				const lane = findLaneFor(t, endMs);
-				if (lane !== null) {
-					item.start = new Date(t);
-					item.end = new Date(endMs);
-					item.slot = lane;
-					placed = true;
-					break;
-				}
-			}
-		}
-
-		if (!placed) {
-			alert('No free opening in that direction - every lane is already booked through that part of the day.');
+		const swapIdx = direction === 'earlier' ? idx - 1 : idx + 1;
+		if (swapIdx < 0 || swapIdx >= sorted.length) {
+			alert(direction === 'earlier'
+				? 'This is already the first scheduled track of the day.'
+				: 'This is already the last scheduled track of the day.');
 			return;
+		}
+
+		const current = sorted[idx];
+		const neighbor = sorted[swapIdx];
+
+		// Swap start anchors and lanes
+		const tempStart = current.start;
+		current.start = neighbor.start;
+		neighbor.start = tempStart;
+
+		const tempSlot = current.slot;
+		current.slot = neighbor.slot;
+		neighbor.slot = tempSlot;
+
+		// Give each its full natural duration, then cascade both affected lanes
+		// so nothing overlaps
+		current.end = naturalEndCappedAtScheduleEnd(current);
+		neighbor.end = naturalEndCappedAtScheduleEnd(neighbor);
+
+		cascadeLane(current.slot);
+		if (neighbor.slot !== current.slot) {
+			cascadeLane(neighbor.slot);
 		}
 
 		renderScheduleList();
