@@ -72,7 +72,7 @@
 
 		.track-slot {
 			display: grid;
-			grid-template-columns: 200px 1fr 150px;
+			grid-template-columns: 200px 1fr 150px 70px;
 			gap: 1rem;
 			padding: 1rem;
 			margin-bottom: 0.75rem;
@@ -80,6 +80,19 @@
 			border-left: 4px solid var(--pico-primary);
 			border-radius: var(--pico-border-radius);
 			align-items: center;
+		}
+
+		.track-move {
+			display: flex;
+			flex-direction: column;
+			gap: 0.25rem;
+		}
+
+		.track-move button {
+			padding: 0.15rem 0.4rem;
+			font-size: 0.75rem;
+			line-height: 1;
+			margin: 0;
 		}
 
 		.track-name {
@@ -135,7 +148,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.4.1</p>
+			<p>Optimized lineup for maximum engagement v0.5.0</p>
 		</div>
 		<article>
 			<header>
@@ -213,7 +226,7 @@ F1D</textarea>
 				<div>
 					<label for="inputHighPriorityBoostTrackCodes">
 						High Priority Boost Tracks (Schedule Earlier):
-						<textarea placeholder="track codes that should be scheduled earlier (e.g., PID)" id="inputHighPriorityBoostTrackCodes" rows="4">PID</textarea>
+						<textarea placeholder="track codes that should be scheduled earlier (e.g., PID)" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
 					</label>
 					<small>These tracks will receive a positive score boost to be handled earlier in the day, regardless of handle</small>
 				</div>
@@ -269,6 +282,11 @@ JP</textarea>
 	// Global variable to store the current schedule
 	let currentSchedule = [];
 	let allTracksData = []; // Store all tracks for CSV export
+	let lastUnschedulableTracks = []; // Store for re-rendering after manual moves
+	let lastTotalTracksCount = 0;
+	let currentScheduleStart = null; // Needed by the manual move buttons
+	let currentScheduleEnd = null;
+	const NUM_SLOTS = 6;
 	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
 	const MIN_SCHEDULE_DURATION_MINUTES = 15; // Flat minimum - a track must get MORE than this to be worth a slot
 
@@ -293,6 +311,7 @@ JP</textarea>
 		// Clear previous results when a new file is selected
 		currentSchedule = [];
 		allTracksData = [];
+		lastUnschedulableTracks = [];
 		document.getElementById('results').style.display = 'none';
 	});
 
@@ -829,22 +848,40 @@ JP</textarea>
 			return a.slot - b.slot;
 		});
 
-		// Store schedule globally for CSV export
+		// Store schedule globally for CSV export and for the manual move buttons
 		currentSchedule = schedule;
+		currentScheduleStart = scheduleStart;
+		currentScheduleEnd = scheduleEnd;
+		lastUnschedulableTracks = unschedulableTracks;
+		lastTotalTracksCount = tracks.length;
 
 		// Display results
 		displaySchedule(schedule, tracks, unschedulableTracks);
 	}
 
 	function displaySchedule(schedule, tracks, unschedulableTracks) {
-		// Update stats
 		document.getElementById('totalTracks').textContent = tracks.length;
-		document.getElementById('scheduledTracks').textContent = schedule.length;
+		lastUnschedulableTracks = unschedulableTracks;
+		renderScheduleList();
+		document.getElementById('results').style.display = 'block';
 
-		// Build schedule HTML
+		// Scroll to results
+		document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
+
+	// Re-render the schedule list (and unschedulable list) from currentSchedule /
+	// lastUnschedulableTracks. Called on initial generation and again after a
+	// manual move so the display always reflects the current state.
+	function renderScheduleList() {
+		document.getElementById('scheduledTracks').textContent = currentSchedule.length;
+
+		// Build schedule HTML (in chronological order)
+		const sortedSchedule = [...currentSchedule].sort((a, b) => a.start - b.start || a.slot - b.slot);
+
 		let scheduleHTML = '';
-		schedule.forEach((item, index) => {
+		sortedSchedule.forEach((item) => {
 			const duration = (item.end - item.start) / (1000 * 60); // minutes
+			const code = item.track.code;
 			scheduleHTML += `
 				<div class="track-slot">
 					<div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}${item.track.isHighPriorityBoost ? ' ⬆️' : ''}${item.track.isLowPriority ? ' 🔻' : ''}</div>
@@ -856,12 +893,16 @@ JP</textarea>
 						minimumFractionDigits: 2,
 						maximumFractionDigits: 2
 					})}</div>
+					<div class="track-move">
+						<button type="button" title="Move to previous available slot" onclick="moveTrack('${code}', 'earlier')">▲</button>
+						<button type="button" title="Move to next available slot" onclick="moveTrack('${code}', 'later')">▼</button>
+					</div>
 				</div>
 			`;
 		});
 
 		// Add section for unschedulable tracks if any
-		if (unschedulableTracks.length > 0) {
+		if (lastUnschedulableTracks.length > 0) {
 			scheduleHTML += `
 				<hr>
 				<article style="background: var(--pico-del-color); color: white; padding: 1.5rem; border-radius: var(--pico-border-radius); margin-top: 1.5rem;">
@@ -869,7 +910,7 @@ JP</textarea>
 					<p>These tracks have no available slot before they finish racing:</p>
 					<ul>
 			`;
-			unschedulableTracks.forEach(track => {
+			lastUnschedulableTracks.forEach(track => {
 				scheduleHTML += `<li><strong>${track.code}</strong> - ${track.name} (Last Post: ${formatDateTime(track.lastPost)})</li>`;
 			});
 			scheduleHTML += `
@@ -879,10 +920,84 @@ JP</textarea>
 		}
 
 		document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
-		document.getElementById('results').style.display = 'block';
+	}
 
-		// Scroll to results
-		document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+	// Manually reposition a scheduled track to the next (or previous) genuinely
+	// free opening across all lanes - it never overlaps with another track, and it
+	// never displaces anything else, it just looks for real empty room. Preserves
+	// the track's current on-air duration and relocates that same-length block.
+	function moveTrack(trackCode, direction) {
+		const idx = currentSchedule.findIndex(item => item.track.code === trackCode);
+		if (idx === -1) return;
+		const item = currentSchedule[idx];
+		const durationMs = item.end.getTime() - item.start.getTime();
+		const currentStartMs = item.start.getTime();
+
+		// Occupied intervals per lane, excluding the track being moved
+		const laneIntervals = {};
+		for (let lane = 1; lane <= NUM_SLOTS; lane++) laneIntervals[lane] = [];
+		currentSchedule.forEach((other, i) => {
+			if (i === idx) return;
+			laneIntervals[other.slot].push({ start: other.start.getTime(), end: other.end.getTime() });
+		});
+
+		function fitsInLane(lane, startMs, endMs) {
+			return laneIntervals[lane].every(iv => endMs <= iv.start || startMs >= iv.end);
+		}
+
+		function findLaneFor(startMs, endMs) {
+			for (let lane = 1; lane <= NUM_SLOTS; lane++) {
+				if (fitsInLane(lane, startMs, endMs)) return lane;
+			}
+			return null;
+		}
+
+		// Candidate times to try: every other track's start/end, plus the
+		// schedule's own start/end boundaries
+		const boundarySet = new Set([currentScheduleStart.getTime(), currentScheduleEnd.getTime()]);
+		currentSchedule.forEach((other, i) => {
+			if (i === idx) return;
+			boundarySet.add(other.start.getTime());
+			boundarySet.add(other.end.getTime());
+		});
+
+		let placed = false;
+		if (direction === 'later') {
+			const candidates = Array.from(boundarySet).filter(t => t > currentStartMs).sort((a, b) => a - b);
+			for (const t of candidates) {
+				const endMs = t + durationMs;
+				if (endMs > currentScheduleEnd.getTime()) break; // ran out of room going later
+				const lane = findLaneFor(t, endMs);
+				if (lane !== null) {
+					item.start = new Date(t);
+					item.end = new Date(endMs);
+					item.slot = lane;
+					placed = true;
+					break;
+				}
+			}
+		} else {
+			const candidates = Array.from(boundarySet).filter(t => t < currentStartMs).sort((a, b) => b - a);
+			for (const t of candidates) {
+				if (t < currentScheduleStart.getTime()) break; // ran out of room going earlier
+				const endMs = t + durationMs;
+				const lane = findLaneFor(t, endMs);
+				if (lane !== null) {
+					item.start = new Date(t);
+					item.end = new Date(endMs);
+					item.slot = lane;
+					placed = true;
+					break;
+				}
+			}
+		}
+
+		if (!placed) {
+			alert('No free opening in that direction - every lane is already booked through that part of the day.');
+			return;
+		}
+
+		renderScheduleList();
 	}
 </script>
 </body>
