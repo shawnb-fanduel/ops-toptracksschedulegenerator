@@ -482,21 +482,18 @@ JP</textarea>
 			currentSchedule.map(item => item.track.code)
 		);
 
-		let csvContent = 'Track Name,Track Code,Start Time,End Time,Duration (minutes),Engagement,Enabled\n';
+		let csvContent = 'Track Name,Track Code,Start Time,End Time,Enabled\n';
 
 		allTracksData.forEach(track => {
 			const isEnabled = scheduledTrackCodes.has(track.code) ? 1 : 0;
 			const scheduleItem = currentSchedule.find(item => item.track.code === track.code);
 
 			if (scheduleItem) {
-				const duration = Math.round((scheduleItem.end - scheduleItem.start) / (1000 * 60));
 				const row = [
 					`"${track.name}"`,
 					track.code,
 					formatDateTimeForCSV(scheduleItem.start),
 					formatDateTimeForCSV(scheduleItem.end),
-					duration,
-					formatHandleAnonymized(track.handle),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
@@ -506,8 +503,6 @@ JP</textarea>
 					track.code,
 					'',
 					'',
-					'',
-					formatHandleAnonymized(track.handle),
 					isEnabled
 				].join(',');
 				csvContent += row + '\n';
