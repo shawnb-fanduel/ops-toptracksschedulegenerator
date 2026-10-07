@@ -148,7 +148,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.5.1</p>
+			<p>Optimized lineup for maximum engagement v0.6.0</p>
 		</div>
 		<article>
 			<header>
@@ -1046,6 +1046,12 @@ JP</textarea>
 		const current = sorted[idx];
 		const neighbor = sorted[swapIdx];
 
+		// The neighbor is only being displaced as a side effect of your move, so it
+		// keeps the duration it already had. Re-deriving its "full natural" length
+		// here is what used to blow it up into a many-hour block that shoved its
+		// whole lane (and sometimes a track clean off the end of the day).
+		const neighborDurationMs = neighbor.end.getTime() - neighbor.start.getTime();
+
 		// Swap start anchors and lanes
 		const tempStart = current.start;
 		current.start = neighbor.start;
@@ -1055,10 +1061,28 @@ JP</textarea>
 		current.slot = neighbor.slot;
 		neighbor.slot = tempSlot;
 
-		// Give each its full natural duration, then cascade both affected lanes
-		// so nothing overlaps
+		// Neither track may be placed before its own races actually begin -
+		// otherwise its end (anchored to its real last post) stretches backwards
+		// into hours of dead air.
+		if (current.start.getTime() < current.track.earliestStart.getTime()) {
+			current.start = new Date(current.track.earliestStart.getTime());
+		}
+		if (neighbor.start.getTime() < neighbor.track.earliestStart.getTime()) {
+			neighbor.start = new Date(neighbor.track.earliestStart.getTime());
+		}
+
+		// The track you actually moved gets its real card length at its new spot
 		current.end = naturalEndCappedAtScheduleEnd(current);
-		neighbor.end = naturalEndCappedAtScheduleEnd(neighbor);
+
+		// The displaced neighbor just carries its existing duration along
+		let neighborEndMs = neighbor.start.getTime() + neighborDurationMs;
+		if (neighborEndMs > currentScheduleEnd.getTime()) {
+			neighborEndMs = currentScheduleEnd.getTime();
+		}
+		if (neighborEndMs <= neighbor.start.getTime()) {
+			neighborEndMs = neighbor.start.getTime() + 15 * 60000;
+		}
+		neighbor.end = new Date(neighborEndMs);
 
 		cascadeLane(current.slot);
 		if (neighbor.slot !== current.slot) {
