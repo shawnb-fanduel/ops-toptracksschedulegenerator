@@ -148,7 +148,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.6.0</p>
+			<p>Optimized lineup for maximum engagement v0.6.1</p>
 		</div>
 		<article>
 			<header>
@@ -932,6 +932,19 @@ JP</textarea>
 	// own hard end-of-day boundary - never by a neighbor. Overlaps this creates
 	// with whatever's next in the lane are resolved by cascadeLane(), which
 	// pushes the rest of that lane later rather than truncating this track.
+	// Hold a track back to its own first race, so its block can't stretch
+	// backwards into dead air. Skipped entirely for a track whose race window
+	// sits outside today's schedule (a replay of a card running tomorrow) -
+	// there, the earliest-start carries no useful meaning for placement, and
+	// honouring it would push the track past the end of the day.
+	function clampStartToEarliestRace(item) {
+		const earliestMs = item.track.earliestStart.getTime();
+		if (earliestMs >= currentScheduleEnd.getTime()) return;
+		if (item.start.getTime() < earliestMs) {
+			item.start = new Date(earliestMs);
+		}
+	}
+
 	function naturalEndCappedAtScheduleEnd(item) {
 		let end = computeNaturalEnd(item.track);
 		if (end.getTime() > currentScheduleEnd.getTime()) {
@@ -1061,15 +1074,9 @@ JP</textarea>
 		current.slot = neighbor.slot;
 		neighbor.slot = tempSlot;
 
-		// Neither track may be placed before its own races actually begin -
-		// otherwise its end (anchored to its real last post) stretches backwards
-		// into hours of dead air.
-		if (current.start.getTime() < current.track.earliestStart.getTime()) {
-			current.start = new Date(current.track.earliestStart.getTime());
-		}
-		if (neighbor.start.getTime() < neighbor.track.earliestStart.getTime()) {
-			neighbor.start = new Date(neighbor.track.earliestStart.getTime());
-		}
+		// Don't place a track before its own races begin (that would stretch its
+		clampStartToEarliestRace(current);
+		clampStartToEarliestRace(neighbor);
 
 		// The track you actually moved gets its real card length at its new spot
 		current.end = naturalEndCappedAtScheduleEnd(current);
