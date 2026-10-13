@@ -148,7 +148,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.6.1</p>
+			<p>Optimized lineup for maximum engagement v0.6.2</p>
 		</div>
 		<article>
 			<header>
@@ -1002,10 +1002,16 @@ JP</textarea>
 					continue;
 				}
 
-				// No better lane available - push it later within this lane
-				const durationMs = cur.end.getTime() - cur.start.getTime();
+				// No better lane available - push it later within this lane.
+				// Its END stays anchored to its own real last race: a track's
+				// races don't finish later just because we started airing it
+				// later, so a push SHRINKS its window rather than sliding the
+				// whole block. Dragging the duration along was both showing
+				// tracks running past their final race and snowballing lane
+				// occupancy with every push, which shoved the tail of the lane
+				// off the end of the day.
 				cur.start = new Date(prev.end.getTime());
-				cur.end = new Date(cur.start.getTime() + durationMs);
+				cur.end = naturalEndCappedAtScheduleEnd(cur);
 			}
 		}
 
@@ -1059,12 +1065,6 @@ JP</textarea>
 		const current = sorted[idx];
 		const neighbor = sorted[swapIdx];
 
-		// The neighbor is only being displaced as a side effect of your move, so it
-		// keeps the duration it already had. Re-deriving its "full natural" length
-		// here is what used to blow it up into a many-hour block that shoved its
-		// whole lane (and sometimes a track clean off the end of the day).
-		const neighborDurationMs = neighbor.end.getTime() - neighbor.start.getTime();
-
 		// Swap start anchors and lanes
 		const tempStart = current.start;
 		current.start = neighbor.start;
@@ -1078,18 +1078,11 @@ JP</textarea>
 		clampStartToEarliestRace(current);
 		clampStartToEarliestRace(neighbor);
 
-		// The track you actually moved gets its real card length at its new spot
+		// Both ends anchor to each track's own real last race. The clamp above
+		// already stops an in-window track from being dragged back before its
+		// first race, so this can no longer balloon into dead air.
 		current.end = naturalEndCappedAtScheduleEnd(current);
-
-		// The displaced neighbor just carries its existing duration along
-		let neighborEndMs = neighbor.start.getTime() + neighborDurationMs;
-		if (neighborEndMs > currentScheduleEnd.getTime()) {
-			neighborEndMs = currentScheduleEnd.getTime();
-		}
-		if (neighborEndMs <= neighbor.start.getTime()) {
-			neighborEndMs = neighbor.start.getTime() + 15 * 60000;
-		}
-		neighbor.end = new Date(neighborEndMs);
+		neighbor.end = naturalEndCappedAtScheduleEnd(neighbor);
 
 		cascadeLane(current.slot);
 		if (neighbor.slot !== current.slot) {
