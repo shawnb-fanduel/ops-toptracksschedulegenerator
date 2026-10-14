@@ -148,7 +148,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.6.2</p>
+			<p>Optimized lineup for maximum engagement v0.7.0</p>
 		</div>
 		<article>
 			<header>
@@ -170,17 +170,11 @@
 					<label for="startTime">Schedule Start Time:</label>
 					<select id="startTime">
 						<option value="00:00">12:00 AM</option>
-						<option value="00:30">12:30 AM</option>
 						<option value="01:00">1:00 AM</option>
-						<option value="01:30">1:30 AM</option>
 						<option value="02:00" selected>2:00 AM</option>
-						<option value="02:30">2:30 AM</option>
 						<option value="03:00">3:00 AM</option>
-						<option value="03:30">3:30 AM</option>
 						<option value="04:00">4:00 AM</option>
-						<option value="04:30">4:30 AM</option>
 						<option value="05:00">5:00 AM</option>
-						<option value="05:30">5:30 AM</option>
 						<option value="06:00">6:00 AM</option>
 					</select>
 				</div>
@@ -189,12 +183,11 @@
 					<label for="endTime">Schedule End Time (Next Day):</label>
 					<select id="endTime">
 						<option value="00:00">12:00 AM</option>
-						<option value="00:30">12:30 AM</option>
 						<option value="01:00">1:00 AM</option>
-						<option value="01:30">1:30 AM</option>
 						<option value="02:00" selected>2:00 AM</option>
-						<option value="02:30">2:30 AM</option>
 						<option value="03:00">3:00 AM</option>
+						<option value="04:00">4:00 AM</option>
+						<option value="05:00">5:00 AM</option>
 					</select>
 				</div>
 			</div>
@@ -286,6 +279,14 @@ JP</textarea>
 	let lastTotalTracksCount = 0;
 	let currentScheduleStart = null; // Needed by the manual move buttons
 	let currentScheduleEnd = null;
+	// Draft order: who gets first pick of a slot. The ▲/▼ buttons reorder this
+	// and the whole schedule is recalculated, rather than times being edited
+	// in place (which used to leave holes and overlaps).
+	let manualDraftOrder = null;
+	let lastCsvData = null;      // kept so a move can re-run placement without re-reading the file
+	let lastStartTimeStr = null;
+	let lastEndTimeStr = null;
+	let suppressScrollOnRender = false;
 	const NUM_SLOTS = 6;
 	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
 	const MIN_SCHEDULE_DURATION_MINUTES = 15; // Flat minimum - a track must get MORE than this to be worth a slot
@@ -533,14 +534,19 @@ JP</textarea>
 			return;
 		}
 
-		// Clear previous data
+		// Clear previous data - a regenerate starts from the algorithm's own
+		// draft order again, discarding any manual ▲/▼ nudges
 		currentSchedule = [];
 		allTracksData = [];
+		manualDraftOrder = null;
 
 		const reader = new FileReader();
 		reader.onload = function(e) {
 			try {
 				const csvData = parseCSV(e.target.result);
+				lastCsvData = csvData;
+				lastStartTimeStr = startTimeStr;
+				lastEndTimeStr = endTimeStr;
 				processSchedule(csvData, startTimeStr, endTimeStr);
 			} catch (error) {
 				document.getElementById('results').innerHTML = `
@@ -733,6 +739,22 @@ JP</textarea>
 			return b.hybridScore - a.hybridScore;
 		});
 
+		// DRAFT ORDER
+		// The sort above is the algorithm's opinion of who should get first pick
+		// of a slot. manualDraftOrder is the running record of that order, and the
+		// ▲/▼ buttons do nothing except swap two entries in it - then the whole
+		// schedule re-runs from scratch through this same placement loop. That way
+		// a manual nudge can never leave a hole or an overlap: every slot gets
+		// filled greedily on every pass, exactly as on a fresh generation.
+		if (manualDraftOrder && manualDraftOrder.length > 0) {
+			const rankOf = code => {
+				const i = manualDraftOrder.indexOf(code);
+				return i === -1 ? Number.MAX_SAFE_INTEGER : i; // unseen tracks go last
+			};
+			tracks.sort((a, b) => rankOf(a.code) - rankOf(b.code));
+		}
+		manualDraftOrder = tracks.map(t => t.code);
+
 		// Set up schedule boundaries
 		// Use the most common calendar date among all tracks as the reference day,
 		// rather than tracks[0] (fragile: after hybrid-score sorting, tracks[0] could be
@@ -860,8 +882,12 @@ JP</textarea>
 		renderScheduleList();
 		document.getElementById('results').style.display = 'block';
 
-		// Scroll to results
-		document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+		// Only jump to the results on a fresh generation. A ▲/▼ nudge re-runs
+		// this same path, and scrolling away from the row you just clicked makes
+		// it impossible to nudge a track more than once.
+		if (!suppressScrollOnRender) {
+			document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}
 	}
 
 	// Re-render the schedule list (and unschedulable list) from currentSchedule /
@@ -917,179 +943,38 @@ JP</textarea>
 		document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
 	}
 
-	// Given a track, compute its "natural" end time from its own CSV data alone
-	// (last post + threshold buffer, rounded up) - the same rule the initial
-	// scheduler uses, with no awareness yet of what's next to it in the timeline.
-	function computeNaturalEnd(track) {
-		let end = new Date(track.lastPost);
-		if (track.handle > HIGH_PRIORITY_HANDLE_THRESHOLD) {
-			end.setMinutes(end.getMinutes() + 15);
-		}
-		return roundUpToQuarter(end);
-	}
-
-	// A schedule item's natural end (own CSV data), capped only by the schedule's
-	// own hard end-of-day boundary - never by a neighbor. Overlaps this creates
-	// with whatever's next in the lane are resolved by cascadeLane(), which
-	// pushes the rest of that lane later rather than truncating this track.
-	// Hold a track back to its own first race, so its block can't stretch
-	// backwards into dead air. Skipped entirely for a track whose race window
-	// sits outside today's schedule (a replay of a card running tomorrow) -
-	// there, the earliest-start carries no useful meaning for placement, and
-	// honouring it would push the track past the end of the day.
-	function clampStartToEarliestRace(item) {
-		const earliestMs = item.track.earliestStart.getTime();
-		if (earliestMs >= currentScheduleEnd.getTime()) return;
-		if (item.start.getTime() < earliestMs) {
-			item.start = new Date(earliestMs);
-		}
-	}
-
-	function naturalEndCappedAtScheduleEnd(item) {
-		let end = computeNaturalEnd(item.track);
-		if (end.getTime() > currentScheduleEnd.getTime()) {
-			end = new Date(currentScheduleEnd.getTime());
-		}
-		if (end.getTime() <= item.start.getTime()) {
-			end = new Date(item.start.getTime() + 15 * 60000); // safety floor
-		}
-		return end;
-	}
-
-	// Find another lane where an item could sit at its own natural [startMs, endMs)
-	// window with zero conflicts - used so a cascade doesn't blindly stack
-	// everything into one lane's evening hours when a different lane is sitting
-	// idle at that exact time.
-	function findLaneForWindow(item, startMs, endMs, excludeLane) {
-		for (let lane = 1; lane <= NUM_SLOTS; lane++) {
-			if (lane === excludeLane) continue;
-			const conflicts = currentSchedule.some(other =>
-				other !== item && other.slot === lane &&
-				!(endMs <= other.start.getTime() || startMs >= other.end.getTime())
-			);
-			if (!conflicts) return lane;
-		}
-		return null;
-	}
-
-	// Walk one lane in start-time order. If a track now overlaps the one before
-	// it, first check whether a DIFFERENT lane is free at this track's own
-	// natural time - if so, move it there instead of cramming everything later
-	// into a single lane (this is what was clustering AU tracks at midnight
-	// while 3:30 PM / 7:00 PM openings sat unused elsewhere). Only if no other
-	// lane has room does it get pushed later within the current lane. Anything
-	// left with no real room in the day at all is pulled out and flagged for
-	// disabling, same as the initial scheduler does.
-	function cascadeLane(laneNumber) {
-		let laneItems = currentSchedule
-			.filter(item => item.slot === laneNumber)
-			.sort((a, b) => a.start.getTime() - b.start.getTime());
-
-		for (let i = 1; i < laneItems.length; i++) {
-			const prev = laneItems[i - 1];
-			const cur = laneItems[i];
-			if (cur.start.getTime() < prev.end.getTime()) {
-				const naturalEnd = naturalEndCappedAtScheduleEnd({ track: cur.track, start: cur.start });
-				const betterLane = findLaneForWindow(cur, cur.start.getTime(), naturalEnd.getTime(), laneNumber);
-
-				if (betterLane !== null) {
-					// Free room elsewhere at its own natural time - relocate it there,
-					// untouched, and remove it from this lane's sequence
-					cur.slot = betterLane;
-					cur.end = naturalEnd;
-					laneItems.splice(i, 1);
-					i--;
-					continue;
-				}
-
-				// No better lane available - push it later within this lane.
-				// Its END stays anchored to its own real last race: a track's
-				// races don't finish later just because we started airing it
-				// later, so a push SHRINKS its window rather than sliding the
-				// whole block. Dragging the duration along was both showing
-				// tracks running past their final race and snowballing lane
-				// occupancy with every push, which shoved the tail of the lane
-				// off the end of the day.
-				cur.start = new Date(prev.end.getTime());
-				cur.end = naturalEndCappedAtScheduleEnd(cur);
-			}
-		}
-
-		// Clamp EVERY remaining item in this lane at the schedule's own end -
-		// not just the last one, since a cascade can push an earlier item past
-		// the boundary too if too much got crammed into one lane
-		const stillOverflowing = [];
-		laneItems.forEach(item => {
-			if (item.end.getTime() > currentScheduleEnd.getTime()) {
-				item.end = new Date(currentScheduleEnd.getTime());
-			}
-			if (item.start.getTime() >= currentScheduleEnd.getTime() || item.end.getTime() <= item.start.getTime()) {
-				stillOverflowing.push(item);
-			}
-		});
-
-		stillOverflowing.forEach(item => {
-			const idx = currentSchedule.indexOf(item);
-			if (idx !== -1) {
-				currentSchedule.splice(idx, 1);
-				lastUnschedulableTracks.push(item.track);
-			}
-		});
-	}
-
-	// Manually reposition a scheduled track by swapping it with its immediate
-	// neighbor in the chronological list. A packed multi-lane schedule almost
-	// never has a truly empty gap anywhere, so "find free room" mostly just fails -
-	// swapping with the adjacent track is simple, always works unless you're
-	// already at the very start/end, and typically moves by hours per click since
-	// neighbors are rarely close together.
+	// Move a track up or down in the DRAFT ORDER - who gets first pick of a slot -
+	// and then recalculate the entire schedule from scratch.
 	//
-	// After swapping start times (and lanes, so each track's timeline stays
-	// internally consistent), each track gets its FULL natural duration from its
-	// own CSV data - it is never truncated just because something else already
-	// occupies that lane a bit later. If that creates an overlap, cascadeLane()
-	// pushes the rest of that lane later to make room instead.
+	// Nothing here edits start/end times directly. The old approach did, and it
+	// could never keep all six slots filled: swapping two tracks' times left
+	// holes, cascades snowballed, and tracks fell off the end of the day. Running
+	// the real placement loop on every nudge means every pass fills all six lanes
+	// greedily, exactly like a fresh generation - just with a different pecking
+	// order.
 	function moveTrack(trackCode, direction) {
-		const sorted = [...currentSchedule].sort((a, b) => a.start - b.start || a.slot - b.slot);
-		const idx = sorted.findIndex(item => item.track.code === trackCode);
+		if (!lastCsvData || !manualDraftOrder) return;
+
+		const idx = manualDraftOrder.indexOf(trackCode);
 		if (idx === -1) return;
 
 		const swapIdx = direction === 'earlier' ? idx - 1 : idx + 1;
-		if (swapIdx < 0 || swapIdx >= sorted.length) {
+		if (swapIdx < 0 || swapIdx >= manualDraftOrder.length) {
 			alert(direction === 'earlier'
-				? 'This is already the first scheduled track of the day.'
-				: 'This is already the last scheduled track of the day.');
+				? 'This track already has first pick of a slot.'
+				: 'This track already has last pick of a slot.');
 			return;
 		}
 
-		const current = sorted[idx];
-		const neighbor = sorted[swapIdx];
+		// Swap its position in the pecking order with its neighbour
+		const tmp = manualDraftOrder[idx];
+		manualDraftOrder[idx] = manualDraftOrder[swapIdx];
+		manualDraftOrder[swapIdx] = tmp;
 
-		// Swap start anchors and lanes
-		const tempStart = current.start;
-		current.start = neighbor.start;
-		neighbor.start = tempStart;
-
-		const tempSlot = current.slot;
-		current.slot = neighbor.slot;
-		neighbor.slot = tempSlot;
-
-		// Don't place a track before its own races begin (that would stretch its
-		clampStartToEarliestRace(current);
-		clampStartToEarliestRace(neighbor);
-
-		// Both ends anchor to each track's own real last race. The clamp above
-		// already stops an in-window track from being dragged back before its
-		// first race, so this can no longer balloon into dead air.
-		current.end = naturalEndCappedAtScheduleEnd(current);
-		neighbor.end = naturalEndCappedAtScheduleEnd(neighbor);
-
-		cascadeLane(current.slot);
-		if (neighbor.slot !== current.slot) {
-			cascadeLane(neighbor.slot);
-		}
-
-		renderScheduleList();
+		// Recalculate everything from the original CSV using the new order
+		suppressScrollOnRender = true;
+		processSchedule(lastCsvData, lastStartTimeStr, lastEndTimeStr);
+		suppressScrollOnRender = false;
 	}
 </script>
 </body>
