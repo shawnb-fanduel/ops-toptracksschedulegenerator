@@ -82,6 +82,18 @@
 			align-items: center;
 		}
 
+		/* Tracks Without a Slot: red highlight so they stand out as "disable these" */
+		.track-slot.no-slot {
+			border-left-color: var(--pico-del-color);
+			background: color-mix(in srgb, var(--pico-del-color) 14%, var(--pico-card-background-color));
+			outline: 1px solid color-mix(in srgb, var(--pico-del-color) 45%, transparent);
+		}
+
+		.track-slot.no-slot .track-note {
+			color: var(--pico-del-color);
+			font-style: normal;
+		}
+
 		.track-move {
 			display: flex;
 			flex-direction: column;
@@ -104,11 +116,54 @@
 			font-size: 0.875rem;
 		}
 
+		/* Informational only - partial coverage is expected, not an error */
+		.track-note {
+			color: var(--pico-muted-color);
+			font-style: italic;
+		}
+
 		.track-handle {
 			text-align: right;
 			font-weight: 200;
 			color: var(--pico-ins-color);
 		}
+
+		/* Disabled tracks card: same row shape as the schedule, muted border */
+		.disabled-card {
+			border: 1px solid var(--pico-muted-border-color);
+		}
+
+		.disabled-slot {
+			display: grid;
+			grid-template-columns: 200px 1fr 150px 110px;
+			gap: 1rem;
+			padding: 0.75rem 1rem;
+			margin-bottom: 0.5rem;
+			background: var(--pico-background-color);
+			border-left: 4px solid var(--pico-muted-border-color);
+			border-radius: var(--pico-border-radius);
+			align-items: center;
+		}
+
+		.disabled-slot.added {
+			border-left-color: var(--pico-ins-color);
+		}
+
+		.disabled-slot button {
+			padding: 0.3rem 0.6rem;
+			font-size: 0.8rem;
+			margin: 0;
+			width: 100%;
+		}
+
+		.fit {
+			font-size: 0.8rem;
+			font-weight: 600;
+		}
+
+		.fit.room { color: var(--pico-ins-color); }
+		.fit.partial { color: #e0a040; }
+		.fit.full { color: var(--pico-muted-color); }
 
 		.threshold-display {
 			display: inline-block;
@@ -133,7 +188,8 @@
 		}
 
 		@media (max-width: 768px) {
-			.track-slot {
+			.track-slot,
+			.disabled-slot {
 				grid-template-columns: 1fr;
 				gap: 0.5rem;
 			}
@@ -148,7 +204,7 @@
 	<main class="container">
 		<div class="header">
 			<h1>🏇📅  Top Tracks Schedule Builder</h1>
-			<p>Optimized lineup for maximum engagement v0.7.0</p>
+			<p>Optimized lineup for maximum engagement v0.8.0</p>
 		</div>
 		<article>
 			<header>
@@ -201,8 +257,24 @@
 							<input type="range" id="thresholdSlider" min="0" max="1000000" step="50000" value="300000">
 							<span class="threshold-display" id="thresholdValue">3.0</span>
 						</div>
-						<small>Tracks with engagement ≥ this amount will be scheduled earlier</small>
+						<small>Tracks with engagement ≥ this amount get first pick of a slot (⭐) and a 15-minute buffer after last post</small>
 					</label>
+				</div>
+
+				<div>
+					<label for="leadMinutes">
+						Pre-Race Lead Time:
+						<select id="leadMinutes">
+							<option value="0">0 min</option>
+							<option value="15">15 min</option>
+							<option value="30">30 min</option>
+							<option value="45">45 min</option>
+							<option value="60" selected>60 min</option>
+							<option value="90">90 min</option>
+							<option value="120">120 min</option>
+						</select>
+					</label>
+					<small>How early a track can go on the page before its first post. No track is placed earlier than this, however high its handle.</small>
 				</div>
 
 				<div>
@@ -218,15 +290,15 @@ F1D</textarea>
 
 				<div>
 					<label for="inputHighPriorityBoostTrackCodes">
-						High Priority Boost Tracks (Schedule Earlier):
-						<textarea placeholder="track codes that should be scheduled earlier (e.g., KD)" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
+						High Priority Boost Tracks (First Pick):
+						<textarea placeholder="track codes that should get first pick of a slot (e.g., KD)" id="inputHighPriorityBoostTrackCodes" rows="4"></textarea>
 					</label>
-					<small>These tracks will receive a positive score boost to be handled earlier in the day, regardless of handle</small>
+					<small>These tracks get a score boost so they win any slot they compete for, regardless of handle</small>
 				</div>
 
 				<div>
 					<label for="inputLowPriorityTrackCodes">
-						Low Priority Tracks (Schedule Last):
+						Low Priority Tracks (Last Pick):
 						<textarea placeholder="track codes that should be scheduled last" id="inputLowPriorityTrackCodes" rows="3">JP1
 JP2
 AU1
@@ -237,11 +309,11 @@ AU2</textarea>
 
 				<div>
 					<label for="inputLowPriorityRegionCodes">
-						Low Priority Region Codes (Schedule Last):
+						Low Priority Region Codes (Last Pick):
 						<textarea placeholder="region prefixes to penalize" id="inputLowPriorityRegionCodes" rows="3">AU
 JP</textarea>
 					</label>
-					<small>Any track code containing these strings will be scheduled last. Useful for entire regions/countries</small>
+					<small>Any track code containing these strings picks last. Useful for entire regions/countries</small>
 				</div>
 			</div>
 		</details>
@@ -258,6 +330,10 @@ JP</textarea>
 					<div class="value" id="scheduledTracks">0</div>
 					<div class="label">Scheduled Tracks</div>
 				</div>
+				<div class="stat-card">
+					<div class="value" id="disabledTracks">0</div>
+					<div class="label">Disabled Tracks</div>
+				</div>
 			</div>
 
 			<article>
@@ -269,6 +345,14 @@ JP</textarea>
 					<button onclick="downloadCSV()" class="secondary">📥 Download Schedule as CSV</button>
 				</footer>
 			</article>
+
+			<article class="disabled-card">
+				<header>
+					<strong>Disabled Tracks:</strong>
+					<br><small>Disabled in the input file, sorted by handle. "Room on page" means it fits without moving anyone. ➕ Add puts it on the schedule and re-runs.</small>
+				</header>
+				<div id="disabledOutput"></div>
+			</article>
 		</div>
 	</main>
 <script>
@@ -276,13 +360,16 @@ JP</textarea>
 	let currentSchedule = [];
 	let allTracksData = []; // Store all tracks for CSV export
 	let lastUnschedulableTracks = []; // Store for re-rendering after manual moves
+	let lastDisabledTracks = [];
 	let lastTotalTracksCount = 0;
-	let currentScheduleStart = null; // Needed by the manual move buttons
+	let currentScheduleStart = null;
 	let currentScheduleEnd = null;
 	// Draft order: who gets first pick of a slot. The ▲/▼ buttons reorder this
 	// and the whole schedule is recalculated, rather than times being edited
 	// in place (which used to leave holes and overlaps).
 	let manualDraftOrder = null;
+	// Disabled tracks you've added from the Disabled Tracks card this session
+	let addedDisabledCodes = new Set();
 	let lastCsvData = null;      // kept so a move can re-run placement without re-reading the file
 	let lastStartTimeStr = null;
 	let lastEndTimeStr = null;
@@ -290,6 +377,13 @@ JP</textarea>
 	const NUM_SLOTS = 6;
 	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
 	const MIN_SCHEDULE_DURATION_MINUTES = 15; // Flat minimum - a track must get MORE than this to be worth a slot
+	const MIN_RACE_COVERAGE = 0.5; // Non-required tracks must be on the page for at least half their races
+
+	// Score boosts. Handle is scored on a square-root curve (0..1), so these
+	// just need to be bigger than 1 to move a track into a different band.
+	const REQUIRED_BOOST = 3;
+	const HIGH_PRIORITY_BOOST = 2;
+	const LOW_PRIORITY_PENALTY = 3;
 
 	// Format handle as anonymized value (divide by 100,000)
 	function formatHandleAnonymized(handle) {
@@ -313,12 +407,14 @@ JP</textarea>
 		currentSchedule = [];
 		allTracksData = [];
 		lastUnschedulableTracks = [];
+		lastDisabledTracks = [];
+		addedDisabledCodes = new Set();
 		document.getElementById('results').style.display = 'none';
 	});
 
 	// Parse CSV file
 	function parseCSV(text) {
-		const lines = text.trim().split('\n');
+		const lines = text.trim().split(/\r?\n/);
 		const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
 
 		return lines.slice(1).map(line => {
@@ -349,9 +445,9 @@ JP</textarea>
 		});
 	}
 
-	// Get required track codes from textarea
-	function getRequiredTrackCodes() {
-		const textarea = document.getElementById('inputAlwaysEnableTrackCodes');
+	// Read a textarea of track/region codes into an upper-case list
+	function getCodeList(id) {
+		const textarea = document.getElementById(id);
 		if (!textarea || !textarea.value.trim()) {
 			return [];
 		}
@@ -362,44 +458,10 @@ JP</textarea>
 			.filter(code => code.length > 0);
 	}
 
-	// Get high priority boost track codes from textarea
-	function getHighPriorityBoostTrackCodes() {
-		const textarea = document.getElementById('inputHighPriorityBoostTrackCodes');
-		if (!textarea || !textarea.value.trim()) {
-			return [];
-		}
-
-		return textarea.value
-			.split('\n')
-			.map(code => code.trim().toUpperCase())
-			.filter(code => code.length > 0);
-	}
-
-	// Get low priority track codes from textarea
-	function getLowPriorityTrackCodes() {
-		const textarea = document.getElementById('inputLowPriorityTrackCodes');
-		if (!textarea || !textarea.value.trim()) {
-			return [];
-		}
-
-		return textarea.value
-			.split('\n')
-			.map(code => code.trim().toUpperCase())
-			.filter(code => code.length > 0);
-	}
-
-	// Get low priority region codes from textarea
-	function getLowPriorityRegionCodes() {
-		const textarea = document.getElementById('inputLowPriorityRegionCodes');
-		if (!textarea || !textarea.value.trim()) {
-			return [];
-		}
-
-		return textarea.value
-			.split('\n')
-			.map(code => code.trim().toUpperCase())
-			.filter(code => code.length > 0);
-	}
+	function getRequiredTrackCodes() { return getCodeList('inputAlwaysEnableTrackCodes'); }
+	function getHighPriorityBoostTrackCodes() { return getCodeList('inputHighPriorityBoostTrackCodes'); }
+	function getLowPriorityTrackCodes() { return getCodeList('inputLowPriorityTrackCodes'); }
+	function getLowPriorityRegionCodes() { return getCodeList('inputLowPriorityRegionCodes'); }
 
 	// Check if a track code matches any region code
 	function isTrackInLowPriorityRegion(trackCode, regionCodes) {
@@ -413,24 +475,14 @@ JP</textarea>
 		return parseFloat(handleStr.replace(/[$,]/g, '')) || 0;
 	}
 
-	// Round time to nearest 15 minutes
-	function roundToQuarter(date) {
-		const minutes = date.getMinutes();
-		const roundedMinutes = Math.round(minutes / 15) * 15;
-		date.setMinutes(roundedMinutes);
-		date.setSeconds(0);
-		date.setMilliseconds(0);
-		return date;
-	}
-
 	// Round time DOWN to previous 15 minutes
 	function roundDownToQuarter(date) {
-		const minutes = date.getMinutes();
-		const roundedMinutes = Math.floor(minutes / 15) * 15;
-		date.setMinutes(roundedMinutes);
-		date.setSeconds(0);
-		date.setMilliseconds(0);
-		return date;
+		const result = new Date(date);
+		const minutes = result.getMinutes();
+		result.setMinutes(Math.floor(minutes / 15) * 15);
+		result.setSeconds(0);
+		result.setMilliseconds(0);
+		return result;
 	}
 
 	// Round time UP to the next 15 minutes (never down) - used for end times so a
@@ -549,7 +601,7 @@ JP</textarea>
 				lastEndTimeStr = endTimeStr;
 				processSchedule(csvData, startTimeStr, endTimeStr);
 			} catch (error) {
-				document.getElementById('results').innerHTML = `
+				document.getElementById('scheduleOutput').innerHTML = `
 					<article style="background: var(--pico-del-color); color: white;">
 						<p>Error parsing CSV: ${error.message}</p>
 					</article>
@@ -560,35 +612,95 @@ JP</textarea>
 		reader.readAsText(fileInput.files[0]);
 	}
 
+	// ---------------------------------------------------------------------
+	// SLOT PLACEMENT
+	// Each of the 6 slots is a list of booked intervals. A track asks for its
+	// own window (lead time before first post → last post + buffer) and takes
+	// the slot that covers the most of its actual racing. Because tracks are
+	// placed in draft order but anchored to their own times, a high-handle
+	// afternoon track can no longer squat on a slot from 2:00 AM, and an
+	// overnight track like Hong Kong uses the early gap instead of waiting
+	// behind it.
+	// ---------------------------------------------------------------------
+
+	// Earliest free stretch in one slot at or after wantStart, ending at the
+	// next booking or wantEnd. Returns null if nothing is free before wantEnd.
+	function findGapInSlot(bookings, wantStart, wantEnd) {
+		let start = wantStart.getTime();
+		const end = wantEnd.getTime();
+		const sorted = [...bookings].sort((a, b) => a.start - b.start);
+
+		for (const b of sorted) {
+			if (b.end.getTime() <= start) continue;
+			if (b.start.getTime() <= start) { start = b.end.getTime(); continue; }
+			break;
+		}
+		if (start >= end) return null;
+
+		const next = sorted.find(b => b.start.getTime() >= start);
+		const gapEnd = next ? Math.min(end, next.start.getTime()) : end;
+		return { start: new Date(start), end: new Date(gapEnd) };
+	}
+
+	// Minutes of actual racing (first post → last post) a placement covers
+	function racingMinutesCovered(placement, track) {
+		const a = Math.max(placement.start.getTime(), track.earliestStart.getTime());
+		const b = Math.min(placement.end.getTime(), track.lastPost.getTime());
+		return Math.max(0, (b - a) / 60000);
+	}
+
+	// Best slot for a track across all slots, or null if none is worth it
+	function findBestPlacement(slots, track) {
+		let best = null;
+		slots.forEach((bookings, i) => {
+			const gap = findGapInSlot(bookings, track.wantStart, track.wantEnd);
+			if (!gap) return;
+			const covered = racingMinutesCovered(gap, track);
+			const duration = (gap.end - gap.start) / 60000;
+			const candidate = { slot: i, start: gap.start, end: gap.end, covered, duration };
+			if (!best ||
+				covered > best.covered ||
+				(covered === best.covered && gap.start < best.start)) {
+				best = candidate;
+			}
+		});
+		if (!best) return null;
+		// Must get more than the flat minimum AND some real racing, not just lead time
+		if (best.duration < MIN_SCHEDULE_DURATION_MINUTES || best.covered <= 0) return null;
+		// Skip slivers: a non-required track must get at least half of its races,
+		// otherwise it's better off on the disable list than half-shown
+		const racingMinutes = Math.max(1, (track.lastPost - track.earliestStart) / 60000);
+		if (!track.isRequired && best.covered < racingMinutes * MIN_RACE_COVERAGE) return null;
+		return best;
+	}
+
 	function processSchedule(data, startTimeStr, endTimeStr) {
 		const requiredTrackCodes = getRequiredTrackCodes();
 		const highPriorityBoostTrackCodes = getHighPriorityBoostTrackCodes();
 		const lowPriorityTrackCodes = getLowPriorityTrackCodes();
 		const lowPriorityRegionCodes = getLowPriorityRegionCodes();
+		const leadMinutes = parseInt(document.getElementById('leadMinutes').value) || 0;
 
-		// Parse ALL tracks first (for CSV export)
+		const maxHandle = Math.max(1, ...data.map(t => parseHandle(t['Handle'])));
+
+		// Parse ALL tracks once (used for CSV export, the schedule and the disabled card)
 		allTracksData = data.map(track => {
 			const handle = parseHandle(track['Handle']);
 			const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
 			const isRequired = requiredTrackCodes.includes(trackCode);
 			const isHighPriorityBoost = highPriorityBoostTrackCodes.includes(trackCode);
-			const isLowPriority = lowPriorityTrackCodes.includes(trackCode);
-			const isLowPriorityRegion = isTrackInLowPriorityRegion(trackCode, lowPriorityRegionCodes);
+			const isLowPriority = lowPriorityTrackCodes.includes(trackCode) ||
+				isTrackInLowPriorityRegion(trackCode, lowPriorityRegionCodes);
+			const isEnabledInFile = (track['Active'] || '').toLowerCase() === 'enabled';
 
-			let score = handle;
-
-			// Apply scoring adjustments
-			if (isRequired) {
-				score += 10000000; // Huge boost for required tracks
-			}
-
-			if (isHighPriorityBoost) {
-				score += 5000000; // Large boost for high priority tracks
-			}
-
-			if (isLowPriority || isLowPriorityRegion) {
-				score -= 10000000; // Huge penalty for low priority tracks/regions
-			}
+			// SCORE: square root of handle relative to the top track (0..1).
+			// Keeps the handle ranking, but shrinks the gaps: a $2.3M track scores
+			// ~4x a $146K track instead of ~16x, so it wins head-to-head slot
+			// contests without the long tail being treated as worthless.
+			let score = Math.sqrt(handle / maxHandle);
+			if (isRequired) score += REQUIRED_BOOST;
+			if (isHighPriorityBoost) score += HIGH_PRIORITY_BOOST;
+			if (isLowPriority) score -= LOW_PRIORITY_PENALTY;
 
 			const earliestStart = new Date(track['Earliest Start Time']);
 			const lastPost = new Date(track['Last Post Start Date Time']);
@@ -601,27 +713,24 @@ JP</textarea>
 				handle: handle,
 				score: score,
 				isOnTV: track['Is On TV'] === '1',
-				isHighPriority: score >= HIGH_PRIORITY_HANDLE_THRESHOLD,
+				isHighPriority: handle >= HIGH_PRIORITY_HANDLE_THRESHOLD || isRequired || isHighPriorityBoost,
 				isRequired: isRequired,
 				isHighPriorityBoost: isHighPriorityBoost,
-				isLowPriority: isLowPriority || isLowPriorityRegion
+				isLowPriority: isLowPriority,
+				isEnabledInFile: isEnabledInFile,
+				isAddedFromDisabled: !isEnabledInFile && !isRequired && addedDisabledCodes.has(track['TVG Track Code'])
 			};
 		}).filter(track =>
 			!isNaN(track.earliestStart.getTime()) &&
 			!isNaN(track.lastPost.getTime())
 		);
 
-		// Filter tracks - either marked as enabled OR in the required list
-		const activeTracks = data.filter(track => {
-			const isEnabled = track['Active'] && track['Active'].toLowerCase() === 'enabled';
-			const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
-			const isRequired = requiredTrackCodes.includes(trackCode);
+		// Active = enabled in file, required, or added from the Disabled Tracks card
+		const tracks = allTracksData.filter(t => t.isEnabledInFile || t.isRequired || t.isAddedFromDisabled);
+		const disabledTracks = allTracksData.filter(t => !t.isEnabledInFile && !t.isRequired);
 
-			return isEnabled || isRequired;
-		});
-
-		if (activeTracks.length === 0) {
-			document.getElementById('results').innerHTML = `
+		if (tracks.length === 0) {
+			document.getElementById('scheduleOutput').innerHTML = `
 				<article style="background: var(--pico-del-color); color: white;">
 					<p>No active tracks found in the CSV file!</p>
 				</article>
@@ -630,95 +739,12 @@ JP</textarea>
 			return;
 		}
 
-		// Parse and score tracks
-		const tracks = activeTracks.map(track => {
-			const handle = parseHandle(track['Handle']);
-			const trackCode = (track['TVG Track Code'] || '').trim().toUpperCase();
-			const isRequired = requiredTrackCodes.includes(trackCode);
-			const isHighPriorityBoost = highPriorityBoostTrackCodes.includes(trackCode);
-			const isLowPriority = lowPriorityTrackCodes.includes(trackCode);
-			const isLowPriorityRegion = isTrackInLowPriorityRegion(trackCode, lowPriorityRegionCodes);
-
-			let score = handle;
-
-			// Apply scoring adjustments
-			if (isRequired) {
-				score += 10000000;
-			}
-
-			if (isHighPriorityBoost) {
-				score += 5000000;
-			}
-
-			if (isLowPriority || isLowPriorityRegion) {
-				score -= 10000000;
-			}
-
-			const earliestStart = new Date(track['Earliest Start Time']);
-			const lastPost = new Date(track['Last Post Start Date Time']);
-
-			return {
-				name: track['TVG Track Name'],
-				code: track['TVG Track Code'],
-				earliestStart: earliestStart,
-				lastPost: lastPost,
-				handle: handle,
-				score: score,
-				isOnTV: track['Is On TV'] === '1',
-				isHighPriority: score >= HIGH_PRIORITY_HANDLE_THRESHOLD,
-				isRequired: isRequired,
-				isHighPriorityBoost: isHighPriorityBoost,
-				isLowPriority: isLowPriority || isLowPriorityRegion
-			};
-		}).filter(track =>
-			!isNaN(track.earliestStart.getTime()) &&
-			!isNaN(track.lastPost.getTime())
-		);
-
-		// Calculate hybrid score: 80% time-based, 20% handle-based
-		// Find min/max times to normalize
-		const minTime = Math.min(...tracks.map(t => t.earliestStart.getTime()));
-		const maxTime = Math.max(...tracks.map(t => t.earliestStart.getTime()));
-		const timeRange = maxTime - minTime || 1; // avoid divide by zero
-
-		// Find min/max handles to normalize
-		const minHandle = Math.min(...tracks.map(t => t.handle));
-		const maxHandle = Math.max(...tracks.map(t => t.handle));
-		const handleRange = maxHandle - minHandle || 1;
-
-		// Calculate hybrid score for each track
-		tracks.forEach(track => {
-			// Time score: EARLIER times = higher priority (0 to 1, inverted)
-			const timeNormalized = 1 - ((track.earliestStart.getTime() - minTime) / timeRange);
-
-			// Handle score: higher handles = higher priority (0 to 1)
-			const handleNormalized = (track.handle - minHandle) / handleRange;
-
-			// Apply region/priority penalties to handle before combining
-			let adjustedHandle = track.handle;
-			if (track.isLowPriority) adjustedHandle -= 10000000;
-			if (track.isRequired) adjustedHandle += 10000000;
-			if (track.isHighPriorityBoost) adjustedHandle += 5000000;
-
-			const adjustedHandleNormalized = Math.max(0, (adjustedHandle - minHandle) / handleRange);
-
-			// Hybrid score: 80% time, 20% handle
-			track.hybridScore = (0.8 * timeNormalized) + (0.2 * adjustedHandleNormalized);
-		});
-
-		// Three-tier scheduling order instead of one blended score. A single fuzzy
-		// "close scores swap on duration" rule let a below-threshold short track (like
-		// Thistledown) jump a genuinely higher-priority track (like Horseshoe, above
-		// your handle threshold) just because it was shorter - that's not what we want.
-		//
-		// Tier 0 (Priority): required / boosted / above your handle threshold.
-		//   Always scheduled first, by hybrid score. Nothing bumps these.
-		// Tier 1 (Regular): everyone else. Scheduled by EARLIEST DEADLINE FIRST
-		//   (soonest last-post time) so a short, tightly-windowed track (e.g. an
-		//   early-morning overseas meet) gets packed in before a longer regular
-		//   track that can absorb a later start without losing its whole card -
-		//   but this competition never reaches into Tier 0's slots.
-		// Tier 2 (Low priority): your AU/JP-style penalized tracks, scheduled last.
+		// Tiers decide who gets first pick when tracks compete for the same time.
+		// Tier 0 (⭐): required / boosted / handle above your threshold.
+		// Tier 1: everyone else.
+		// Tier 2 (🔻): your AU/JP-style penalized tracks.
+		// Within a tier, higher score picks first. Time no longer needs to be part
+		// of the score: every track is pinned to its own racing window below.
 		function trackTier(t) {
 			if (t.isLowPriority) return 2;
 			if (t.isHighPriority) return 0;
@@ -726,40 +752,28 @@ JP</textarea>
 		}
 
 		tracks.sort((a, b) => {
-			const tierA = trackTier(a);
-			const tierB = trackTier(b);
-			if (tierA !== tierB) return tierA - tierB;
-
-			if (tierA === 1) {
-				// Regular tier: earliest deadline first, hybrid score as tiebreaker
-				const deadlineDiff = a.lastPost.getTime() - b.lastPost.getTime();
-				if (deadlineDiff !== 0) return deadlineDiff;
-			}
-
-			return b.hybridScore - a.hybridScore;
+			const tierDiff = trackTier(a) - trackTier(b);
+			if (tierDiff !== 0) return tierDiff;
+			return b.score - a.score;
 		});
 
 		// DRAFT ORDER
-		// The sort above is the algorithm's opinion of who should get first pick
-		// of a slot. manualDraftOrder is the running record of that order, and the
-		// ▲/▼ buttons do nothing except swap two entries in it - then the whole
-		// schedule re-runs from scratch through this same placement loop. That way
-		// a manual nudge can never leave a hole or an overlap: every slot gets
-		// filled greedily on every pass, exactly as on a fresh generation.
+		// ▲/▼ swap two entries here and the whole schedule re-runs from scratch.
+		// Tracks not in the saved order yet (e.g. one you just added from the
+		// Disabled card) are slotted in at their natural position, not dumped last.
 		if (manualDraftOrder && manualDraftOrder.length > 0) {
-			const rankOf = code => {
-				const i = manualDraftOrder.indexOf(code);
-				return i === -1 ? Number.MAX_SAFE_INTEGER : i; // unseen tracks go last
-			};
-			tracks.sort((a, b) => rankOf(a.code) - rankOf(b.code));
+			const present = new Set(tracks.map(t => t.code));
+			const order = manualDraftOrder.filter(code => present.has(code));
+			tracks.forEach((t, naturalIndex) => {
+				if (!order.includes(t.code)) order.splice(Math.min(naturalIndex, order.length), 0, t.code);
+			});
+			const byCode = Object.fromEntries(tracks.map(t => [t.code, t]));
+			tracks.length = 0;
+			order.forEach(code => tracks.push(byCode[code]));
 		}
 		manualDraftOrder = tracks.map(t => t.code);
 
-		// Set up schedule boundaries
-		// Use the most common calendar date among all tracks as the reference day,
-		// rather than tracks[0] (fragile: after hybrid-score sorting, tracks[0] could be
-		// an outlier row like an overseas track with a different race-day date, which
-		// would skew the entire schedule window and wrongly flag normal tracks as unschedulable)
+		// Set up schedule boundaries using the most common calendar date
 		const dateCounts = {};
 		tracks.forEach(track => {
 			const dateKey = track.earliestStart.toDateString();
@@ -774,8 +788,7 @@ JP</textarea>
 			}
 		}
 		const referenceTrack = tracks.find(t => t.earliestStart.toDateString() === mostCommonDateKey);
-		const referenceDate = referenceTrack.earliestStart;
-		const scheduleStart = new Date(referenceDate);
+		const scheduleStart = new Date(referenceTrack.earliestStart);
 		const [startHour, startMinute] = startTimeStr.split(':').map(Number);
 		scheduleStart.setHours(startHour, startMinute, 0, 0);
 
@@ -784,95 +797,78 @@ JP</textarea>
 		const [endHour, endMinute] = endTimeStr.split(':').map(Number);
 		scheduleEnd.setHours(endHour, endMinute, 0, 0);
 
-		// Array of available start times
-		const NUM_SLOTS = 6;
-		const slotAvailableStartTimes = Array(NUM_SLOTS).fill(null).map(() => new Date(scheduleStart));
+		// Each track's wanted window: lead time before first post → last post
+		// (+15 min for ⭐ tracks), rounded out to quarter hours, clipped to the day.
+		function setWantedWindow(track) {
+			let wantStart = roundDownToQuarter(new Date(track.earliestStart.getTime() - leadMinutes * 60000));
+			if (wantStart < scheduleStart) wantStart = new Date(scheduleStart);
 
-		// Schedule result
+			let wantEnd = new Date(track.lastPost);
+			if (track.isHighPriority) wantEnd.setMinutes(wantEnd.getMinutes() + 15);
+			wantEnd = roundUpToQuarter(wantEnd);
+			if (wantEnd > scheduleEnd) wantEnd = new Date(scheduleEnd);
+
+			track.wantStart = wantStart;
+			track.wantEnd = wantEnd;
+		}
+		allTracksData.forEach(setWantedWindow);
+
+		const slots = Array(NUM_SLOTS).fill(null).map(() => []);
 		const schedule = [];
-		const unschedulableTracks = []; // Track tracks that couldn't be scheduled
+		const unschedulableTracks = [];
 
-		// Process each track in priority order
+		// Process each track in draft order
 		for (const track of tracks) {
-			// Find the slot that becomes available earliest
-			let earliestSlotIndex = 0;
-			let earliestAvailableTime = slotAvailableStartTimes[0];
-
-			for (let i = 1; i < NUM_SLOTS; i++) {
-				if (slotAvailableStartTimes[i] < earliestAvailableTime) {
-					earliestAvailableTime = slotAvailableStartTimes[i];
-					earliestSlotIndex = i;
-				}
-			}
-
-			// Track starts exactly when the slot becomes available
-			let actualStart = new Date(earliestAvailableTime);
-
-			// Skip if the slot doesn't become available until after the track finishes racing
-			if (actualStart > track.lastPost) {
+			if (track.wantEnd <= track.wantStart) {
 				unschedulableTracks.push(track);
 				continue;
 			}
 
-			// Calculate when this track ends (use its last post time)
-			let actualEnd = new Date(track.lastPost);
-
-			// Tracks above your handle threshold get a flat 15-minute buffer past their
-			// actual last race (room for a late result/photo finish)
-			if (track.handle > HIGH_PRIORITY_HANDLE_THRESHOLD) {
-				actualEnd.setMinutes(actualEnd.getMinutes() + 15);
-			}
-
-			// Always round UP to the later quarter hour (never down/nearest), so we
-			// never clip time off a race - except when that would push past the
-			// schedule's own end time, in which case cap there instead
-			actualEnd = roundUpToQuarter(actualEnd);
-			if (actualEnd > scheduleEnd) {
-				actualEnd = new Date(scheduleEnd);
-			}
-
-			// Make sure end is after start
-			if (actualEnd <= actualStart) {
-				actualEnd = new Date(actualStart);
-				actualEnd.setMinutes(actualEnd.getMinutes() + 15);
-			}
-
-			// Skip tracks that would only get a token sliver of airtime (e.g. 15 minutes
-			// of a card that's basically over) - flag for disabling instead of scheduling
-			const resultingDuration = (actualEnd - actualStart) / (1000 * 60);
-			if (resultingDuration < MIN_SCHEDULE_DURATION_MINUTES) {
+			const placement = findBestPlacement(slots, track);
+			if (!placement) {
 				unschedulableTracks.push(track);
 				continue;
 			}
 
-			// Update the slot's next available start time
-			slotAvailableStartTimes[earliestSlotIndex] = new Date(actualEnd);
-
-			// Add to schedule
-			schedule.push({
-				slot: earliestSlotIndex + 1,
+			const item = {
+				slot: placement.slot + 1,
 				track: track,
-				start: actualStart,
-				end: actualEnd
-			});
+				start: placement.start,
+				end: placement.end,
+				// Only flag it when races are actually missed
+				startedLate: placement.start > track.earliestStart,
+				endedEarly: placement.end < track.lastPost
+			};
+			slots[placement.slot].push(item);
+			schedule.push(item);
 		}
 
-		// Sort schedule by start time, then by slot
-		schedule.sort((a, b) => {
-			if (a.start.getTime() !== b.start.getTime()) {
-				return a.start - b.start;
+		// Disabled tracks: would they fit in what's left, without moving anyone?
+		disabledTracks.forEach(track => {
+			if (track.isAddedFromDisabled) {
+				const item = schedule.find(s => s.track.code === track.code);
+				track.fitStatus = item ? 'added' : 'added-nofit';
+				return;
 			}
-			return a.slot - b.slot;
+			const placement = track.wantEnd > track.wantStart ? findBestPlacement(slots, track) : null;
+			const racingMinutes = Math.max(1, (track.lastPost - track.earliestStart) / 60000);
+			if (!placement) track.fitStatus = 'full';
+			else if (placement.covered >= racingMinutes * 0.95) track.fitStatus = 'room';
+			else track.fitStatus = 'partial';
+			track.fitPlacement = placement;
 		});
+		disabledTracks.sort((a, b) => b.handle - a.handle);
 
-		// Store schedule globally for CSV export and for the manual move buttons
+		// Sort schedule by start time, then by slot
+		schedule.sort((a, b) => a.start - b.start || a.slot - b.slot);
+
 		currentSchedule = schedule;
 		currentScheduleStart = scheduleStart;
 		currentScheduleEnd = scheduleEnd;
 		lastUnschedulableTracks = unschedulableTracks;
+		lastDisabledTracks = disabledTracks;
 		lastTotalTracksCount = tracks.length;
 
-		// Display results
 		displaySchedule(schedule, tracks, unschedulableTracks);
 	}
 
@@ -880,78 +876,139 @@ JP</textarea>
 		document.getElementById('totalTracks').textContent = tracks.length;
 		lastUnschedulableTracks = unschedulableTracks;
 		renderScheduleList();
+		renderDisabledList();
 		document.getElementById('results').style.display = 'block';
 
-		// Only jump to the results on a fresh generation. A ▲/▼ nudge re-runs
-		// this same path, and scrolling away from the row you just clicked makes
-		// it impossible to nudge a track more than once.
+		// Only jump to the results on a fresh generation, not on a ▲/▼ nudge or ➕ Add
 		if (!suppressScrollOnRender) {
 			document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 		}
 	}
 
-	// Re-render the schedule list (and unschedulable list) from currentSchedule /
-	// lastUnschedulableTracks. Called on initial generation and again after a
-	// manual move so the display always reflects the current state.
 	function renderScheduleList() {
 		document.getElementById('scheduledTracks').textContent = currentSchedule.length;
 
-		// Build schedule HTML (in chronological order)
 		const sortedSchedule = [...currentSchedule].sort((a, b) => a.start - b.start || a.slot - b.slot);
 
 		let scheduleHTML = '';
 		sortedSchedule.forEach((item) => {
 			const duration = (item.end - item.start) / (1000 * 60); // minutes
 			const code = item.track.code;
+			const notes = [];
+			if (item.startedLate || item.endedEarly) {
+				const covered = racingMinutesCovered(item, item.track);
+				const racing = Math.max(1, (item.track.lastPost - item.track.earliestStart) / 60000);
+				notes.push(`ⓘ Partial coverage: ${Math.round(covered / racing * 100)}% of races`);
+			}
 			scheduleHTML += `
 				<div class="track-slot">
-					<div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}${item.track.isHighPriorityBoost ? ' ⬆️' : ''}${item.track.isLowPriority ? ' 🔻' : ''}</div>
+					<div class="track-name">${item.track.name}${item.track.isHighPriority ? ' ⭐' : ''}${item.track.isHighPriorityBoost ? ' ⬆️' : ''}${item.track.isLowPriority ? ' 🔻' : ''}${item.track.isAddedFromDisabled ? ' ➕' : ''}</div>
 					<div class="track-time">
 						${formatDateTime(item.start)} - ${formatTime(item.end)}
-						<br><small>(${Math.round(duration)} min)</small>
+						<br><small>(${Math.round(duration)} min · races ${formatTime(item.track.earliestStart)} - ${formatTime(item.track.lastPost)})</small>
+						${notes.length ? `<br><small class="track-note">${notes.join(' · ')}</small>` : ''}
 					</div>
 					<div class="track-handle">$${item.track.handle.toLocaleString('en-US', {
 						minimumFractionDigits: 2,
 						maximumFractionDigits: 2
 					})}</div>
 					<div class="track-move">
-						<button type="button" title="Move to previous available slot" onclick="moveTrack('${code}', 'earlier')">▲</button>
-						<button type="button" title="Move to next available slot" onclick="moveTrack('${code}', 'later')">▼</button>
+						<button type="button" title="Give this track an earlier pick of a slot" onclick="moveTrack('${code}', 'earlier')">▲</button>
+						<button type="button" title="Give this track a later pick of a slot" onclick="moveTrack('${code}', 'later')">▼</button>
 					</div>
 				</div>
 			`;
 		});
 
-		// Add section for unschedulable tracks if any
 		if (lastUnschedulableTracks.length > 0) {
 			scheduleHTML += `
 				<hr>
-				<article style="background: var(--pico-del-color); color: white; padding: 1.5rem; border-radius: var(--pico-border-radius); margin-top: 1.5rem;">
-					<h4>⚠️ Tracks That Couldn't Be Scheduled (Disable These):</h4>
-					<p>These tracks have no available slot before they finish racing:</p>
-					<ul>
+				<h4 style="margin-top: 1.5rem;">Tracks Without a Slot (Disable These):</h4>
+				<p><small>The page is full during most of these tracks' races. Press ▲ to give one an earlier pick. It may then take the slot from a track below it.</small></p>
 			`;
 			lastUnschedulableTracks.forEach(track => {
-				scheduleHTML += `<li><strong>${track.code}</strong> - ${track.name} (Last Post: ${formatDateTime(track.lastPost)})</li>`;
+				const code = track.code;
+				scheduleHTML += `
+					<div class="track-slot no-slot">
+						<div class="track-name">${track.name}${track.isHighPriority ? ' ⭐' : ''}${track.isHighPriorityBoost ? ' ⬆️' : ''}${track.isLowPriority ? ' 🔻' : ''}${track.isAddedFromDisabled ? ' ➕' : ''}
+							<br><small style="font-weight:400">${code}</small></div>
+						<div class="track-time">
+							Races ${formatDateTime(track.earliestStart)} - ${formatTime(track.lastPost)}
+							<br><small class="track-note">ⓘ No slot this run</small>
+						</div>
+						<div class="track-handle">$${track.handle.toLocaleString('en-US', {
+							minimumFractionDigits: 2,
+							maximumFractionDigits: 2
+						})}</div>
+						<div class="track-move">
+							<button type="button" title="Give this track an earlier pick of a slot" onclick="moveTrack('${code}', 'earlier')">▲</button>
+							<button type="button" title="Give this track a later pick of a slot" onclick="moveTrack('${code}', 'later')">▼</button>
+						</div>
+					</div>
+				`;
 			});
-			scheduleHTML += `
-					</ul>
-				</article>
-			`;
 		}
 
 		document.getElementById('scheduleOutput').innerHTML = scheduleHTML;
 	}
 
+	function renderDisabledList() {
+		document.getElementById('disabledTracks').textContent =
+			lastDisabledTracks.filter(t => !t.isAddedFromDisabled).length;
+
+		if (lastDisabledTracks.length === 0) {
+			document.getElementById('disabledOutput').innerHTML = '<p><small>No disabled tracks in this file.</small></p>';
+			return;
+		}
+
+		const fitLabel = {
+			room: '<span class="fit room">✅ Room on page</span>',
+			partial: '<span class="fit partial">◐ Partial room</span>',
+			full: '<span class="fit full">Page full</span>',
+			added: '<span class="fit room">➕ Added to schedule</span>',
+			'added-nofit': '<span class="fit partial">➕ Added, but no slot</span>'
+		};
+
+		let html = '';
+		lastDisabledTracks.forEach(track => {
+			const added = track.isAddedFromDisabled;
+			const p = track.fitPlacement;
+			const wouldGet = !added && p ? `<br><small>Would get ${formatTime(p.start)} - ${formatTime(p.end)}</small>` : '';
+			html += `
+				<div class="disabled-slot${added ? ' added' : ''}">
+					<div class="track-name">${track.name} <small style="font-weight:400">${track.code}</small></div>
+					<div class="track-time">
+						Races ${formatDateTime(track.earliestStart)} - ${formatTime(track.lastPost)}
+						<br>${fitLabel[track.fitStatus]}${wouldGet}
+					</div>
+					<div class="track-handle">$${track.handle.toLocaleString('en-US', {
+						minimumFractionDigits: 2,
+						maximumFractionDigits: 2
+					})}</div>
+					<div>
+						${added
+							? `<button type="button" class="secondary outline" onclick="toggleDisabledTrack('${track.code}')">↩ Remove</button>`
+							: `<button type="button" class="${track.fitStatus === 'full' ? 'secondary outline' : ''}" onclick="toggleDisabledTrack('${track.code}')">➕ Add</button>`}
+					</div>
+				</div>
+			`;
+		});
+		document.getElementById('disabledOutput').innerHTML = html;
+	}
+
+	// Add a disabled track to the schedule (or take it back off) and re-run
+	function toggleDisabledTrack(trackCode) {
+		if (!lastCsvData) return;
+		if (addedDisabledCodes.has(trackCode)) addedDisabledCodes.delete(trackCode);
+		else addedDisabledCodes.add(trackCode);
+
+		suppressScrollOnRender = true;
+		processSchedule(lastCsvData, lastStartTimeStr, lastEndTimeStr);
+		suppressScrollOnRender = false;
+	}
+
 	// Move a track up or down in the DRAFT ORDER - who gets first pick of a slot -
 	// and then recalculate the entire schedule from scratch.
-	//
-	// Nothing here edits start/end times directly. The old approach did, and it
-	// could never keep all six slots filled: swapping two tracks' times left
-	// holes, cascades snowballed, and tracks fell off the end of the day. Running
-	// the real placement loop on every nudge means every pass fills all six lanes
-	// greedily, exactly like a fresh generation - just with a different pecking
-	// order.
 	function moveTrack(trackCode, direction) {
 		if (!lastCsvData || !manualDraftOrder) return;
 
@@ -966,12 +1023,10 @@ JP</textarea>
 			return;
 		}
 
-		// Swap its position in the pecking order with its neighbour
 		const tmp = manualDraftOrder[idx];
 		manualDraftOrder[idx] = manualDraftOrder[swapIdx];
 		manualDraftOrder[swapIdx] = tmp;
 
-		// Recalculate everything from the original CSV using the new order
 		suppressScrollOnRender = true;
 		processSchedule(lastCsvData, lastStartTimeStr, lastEndTimeStr);
 		suppressScrollOnRender = false;
