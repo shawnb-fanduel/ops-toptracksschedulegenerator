@@ -251,6 +251,22 @@
 			<summary>Options:</summary>
 			<div style="display: grid; gap: 1.5rem;">
 				<div>
+					<label for="featuredCount">
+						Featured Tracks at a Time:
+						<input type="number" id="featuredCount" min="1" max="20" step="1" value="6">
+					</label>
+					<small>How many tracks are on the front page at once (number of slots).</small>
+				</div>
+
+				<div>
+					<label for="fillEmptySlots">
+						<input type="checkbox" id="fillEmptySlots" role="switch" checked>
+						Keep every slot filled
+					</label>
+					<small>If a slot would sit empty before its next track (e.g. at 2:00 AM), that track goes on the page early to cover the gap. This overrides Pre-Race Lead Time. End times are never moved, so nothing runs past its last post.</small>
+				</div>
+
+				<div>
 					<label for="thresholdSlider">
 						High Priority Engagement Threshold:
 						<div class="slider-container">
@@ -259,18 +275,6 @@
 						</div>
 						<small>Tracks with engagement ≥ this amount get first pick of a slot (⭐) and a 15-minute buffer after last post</small>
 					</label>
-				</div>
-
-				<div>
-					<label for="numSlots">
-						Tracks Featured at a Time:
-						<input type="number" id="numSlots" min="1" max="20" step="1" value="6">
-					</label>
-					<label for="fillEmptySlots">
-						<input type="checkbox" id="fillEmptySlots" role="switch" checked>
-						Keep every slot filled (start the next tracks to race early when a slot would be empty)
-					</label>
-					<small>Empty slots go to the soonest-starting tracks, not the highest handle, and never push another track out.</small>
 				</div>
 
 				<div>
@@ -286,7 +290,7 @@
 							<option value="120">120 min</option>
 						</select>
 					</label>
-					<small>How early a track can go on the page before its first post. No track is placed earlier than this, however high its handle.</small>
+					<small>How early a track can go on the page before its first post. No track is placed earlier than this, however high its handle (unless "Keep every slot filled" is on and the slot would otherwise be empty).</small>
 				</div>
 
 				<div>
@@ -386,7 +390,7 @@ JP</textarea>
 	let lastStartTimeStr = null;
 	let lastEndTimeStr = null;
 	let suppressScrollOnRender = false;
-	const DEFAULT_NUM_SLOTS = 6; // Overridden by the "Tracks Featured at a Time" option
+	let NUM_SLOTS = 6; // Read from the "Featured Tracks at a Time" option on every run
 	let HIGH_PRIORITY_HANDLE_THRESHOLD = 300000; // Will be updated by slider
 	const MIN_SCHEDULE_DURATION_MINUTES = 15; // Flat minimum - a track must get MORE than this to be worth a slot
 	const MIN_RACE_COVERAGE = 0.5; // Non-required tracks must be on the page for at least half their races
@@ -626,32 +630,37 @@ JP</textarea>
 
 	// ---------------------------------------------------------------------
 	// SLOT PLACEMENT
-	// Each of the 6 slots is a list of booked intervals. A track asks for its
-	// own window (lead time before first post → last post + buffer) and takes
-	// the slot that covers the most of its actual racing. Because tracks are
-	// placed in draft order but anchored to their own times, a high-handle
-	// afternoon track can no longer squat on a slot from 2:00 AM, and an
-	// overnight track like Hong Kong uses the early gap instead of waiting
-	// behind it.
+	// Each slot is a list of booked intervals. A track asks for its own window
+	// (lead time before first post → last post + buffer) and takes the slot
+	// that covers the most of its actual racing. Because tracks are placed in
+	// draft order but anchored to their own times, a high-handle afternoon
+	// track can no longer squat on a slot from 2:00 AM, and an overnight track
+	// like Hong Kong uses the early gap instead of waiting behind it.
 	// ---------------------------------------------------------------------
 
-	// Earliest free stretch in one slot at or after wantStart, ending at the
-	// next booking or wantEnd. Returns null if nothing is free before wantEnd.
-	function findGapInSlot(bookings, wantStart, wantEnd) {
-		let start = wantStart.getTime();
+	// EVERY free stretch in one slot between wantStart and wantEnd. (Returning
+	// only the first one meant a gap opening up later - e.g. after an evening
+	// track finishes at midnight - was never considered.)
+	function findGapsInSlot(bookings, wantStart, wantEnd) {
+		const gaps = [];
+		let cursor = wantStart.getTime();
 		const end = wantEnd.getTime();
 		const sorted = [...bookings].sort((a, b) => a.start - b.start);
 
 		for (const b of sorted) {
-			if (b.end.getTime() <= start) continue;
-			if (b.start.getTime() <= start) { start = b.end.getTime(); continue; }
-			break;
+			if (cursor >= end) break;
+			const bStart = b.start.getTime();
+			const bEnd = b.end.getTime();
+			if (bEnd <= cursor) continue;
+			if (bStart > cursor) {
+				gaps.push({ start: new Date(cursor), end: new Date(Math.min(bStart, end)) });
+			}
+			cursor = Math.max(cursor, bEnd);
 		}
-		if (start >= end) return null;
-
-		const next = sorted.find(b => b.start.getTime() >= start);
-		const gapEnd = next ? Math.min(end, next.start.getTime()) : end;
-		return { start: new Date(start), end: new Date(gapEnd) };
+		if (cursor < end) {
+			gaps.push({ start: new Date(cursor), end: new Date(end) });
+		}
+		return gaps;
 	}
 
 	// Minutes of actual racing (first post → last post) a placement covers
@@ -661,29 +670,46 @@ JP</textarea>
 		return Math.max(0, (b - a) / 60000);
 	}
 
-	// Best slot for a track across all slots, or null if none is worth it
-	function findBestPlacement(slots, track) {
+	// Best gap for a track across all slots, or null if none is worth it.
+	// minCoverage: share of its races a non-required track must get (main pass
+	// uses MIN_RACE_COVERAGE; the fill pass uses 0 so open space gets used).
+	function findBestPlacement(slots, track, minCoverage = MIN_RACE_COVERAGE) {
 		let best = null;
 		slots.forEach((bookings, i) => {
-			const gap = findGapInSlot(bookings, track.wantStart, track.wantEnd);
-			if (!gap) return;
-			const covered = racingMinutesCovered(gap, track);
-			const duration = (gap.end - gap.start) / 60000;
-			const candidate = { slot: i, start: gap.start, end: gap.end, covered, duration };
-			if (!best ||
-				covered > best.covered ||
-				(covered === best.covered && gap.start < best.start)) {
-				best = candidate;
-			}
+			findGapsInSlot(bookings, track.wantStart, track.wantEnd).forEach(gap => {
+				const duration = (gap.end - gap.start) / 60000;
+				// Must get more than the flat minimum AND some real racing, not just lead time
+				if (duration < MIN_SCHEDULE_DURATION_MINUTES) return;
+				const covered = racingMinutesCovered(gap, track);
+				if (covered <= 0) return;
+				if (!best ||
+					covered > best.covered ||
+					(covered === best.covered && gap.start < best.start)) {
+					best = { slot: i, start: gap.start, end: gap.end, covered, duration };
+				}
+			});
 		});
 		if (!best) return null;
-		// Must get more than the flat minimum AND some real racing, not just lead time
-		if (best.duration < MIN_SCHEDULE_DURATION_MINUTES || best.covered <= 0) return null;
-		// Skip slivers: a non-required track must get at least half of its races,
-		// otherwise it's better off on the disable list than half-shown
 		const racingMinutes = Math.max(1, (track.lastPost - track.earliestStart) / 60000);
-		if (!track.isRequired && best.covered < racingMinutes * MIN_RACE_COVERAGE) return null;
+		if (!track.isRequired && best.covered < racingMinutes * minCoverage) return null;
 		return best;
+	}
+
+	// Close empty stretches in each slot by bringing the next track in that slot
+	// onto the page early. Only start times move - end times never do, so no
+	// track runs past its last post. A slot with nothing booked stays empty.
+	function fillEmptyStretches(slots, scheduleStart) {
+		slots.forEach(bookings => {
+			bookings.sort((a, b) => a.start - b.start);
+			let cursor = scheduleStart.getTime();
+			bookings.forEach(item => {
+				if (item.start.getTime() > cursor) {
+					item.start = new Date(cursor);
+					item.filledEarly = true;
+				}
+				cursor = Math.max(cursor, item.end.getTime());
+			});
+		});
 	}
 
 	function processSchedule(data, startTimeStr, endTimeStr) {
@@ -692,8 +718,8 @@ JP</textarea>
 		const lowPriorityTrackCodes = getLowPriorityTrackCodes();
 		const lowPriorityRegionCodes = getLowPriorityRegionCodes();
 		const leadMinutes = parseInt(document.getElementById('leadMinutes').value) || 0;
-		const numSlots = Math.max(1, parseInt(document.getElementById('numSlots').value) || DEFAULT_NUM_SLOTS);
-		const fillEmptySlots = document.getElementById('fillEmptySlots').checked;
+		const fillEmpty = document.getElementById('fillEmptySlots').checked;
+		NUM_SLOTS = Math.max(1, parseInt(document.getElementById('featuredCount').value) || 6);
 
 		const maxHandle = Math.max(1, ...data.map(t => parseHandle(t['Handle'])));
 
@@ -827,7 +853,7 @@ JP</textarea>
 		}
 		allTracksData.forEach(setWantedWindow);
 
-		const slots = Array(numSlots).fill(null).map(() => []);
+		const slots = Array(NUM_SLOTS).fill(null).map(() => []);
 		const schedule = [];
 		const unschedulableTracks = [];
 
@@ -848,60 +874,46 @@ JP</textarea>
 				slot: placement.slot + 1,
 				track: track,
 				start: placement.start,
-				end: placement.end,
-				// Only flag it when races are actually missed
-				startedLate: placement.start > track.earliestStart,
-				endedEarly: placement.end < track.lastPost
+				end: placement.end
 			};
 			slots[placement.slot].push(item);
 			schedule.push(item);
 		}
 
-		// BACKFILL EMPTY SLOTS
-		// Placement only gives each track its own racing window, so quiet hours
-		// (e.g. 2:00 AM with only Hong Kong running) can leave slots empty.
-		// Fill them by starting the NEXT tracks to race earlier - soonest start
-		// first, not highest handle - and only into time where a slot is idle.
-		// Filler never displaces another track, so Mountaineer-style afternoon
-		// tracks only move earlier if nothing sooner can use the slot.
-		// (Disabled-track fit is checked after this against the real bookings
-		// saved below, since filler time would give way to an added track.)
-		const realBookings = slots.map(list => list.map(item => ({ start: item.start, end: item.end, track: item.track })));
-		if (fillEmptySlots) {
-			const Q = 15 * 60000;
-			const stepCount = Math.ceil((scheduleEnd - scheduleStart) / Q);
-			const occupancy = new Array(stepCount).fill(0);
-			const stepOf = d => Math.round((d - scheduleStart) / Q);
-			schedule.forEach(item => {
-				for (let s = stepOf(item.start); s < stepOf(item.end); s++) occupancy[s]++;
-			});
-			[...schedule].sort((a, b) => a.start - b.start).forEach(item => {
-				let s = stepOf(item.start);
-				while (s > 0 && occupancy[s - 1] < numSlots) {
-					s--;
-					occupancy[s]++;
-				}
-				item.start = new Date(scheduleStart.getTime() + s * Q);
-			});
-
-			// Reassign slot numbers now that start times moved (interval colouring)
-			const slotFreeAt = Array(numSlots).fill(scheduleStart.getTime());
-			[...schedule].sort((a, b) => a.start - b.start || b.end - a.end).forEach(item => {
-				let i = slotFreeAt.findIndex(t => t <= item.start.getTime());
-				if (i === -1) i = slotFreeAt.indexOf(Math.min(...slotFreeAt));
-				item.slot = i + 1;
-				slotFreeAt[i] = item.end.getTime();
-			});
+		// FILL PASS: tracks that missed out above (usually because they'd only get
+		// part of their races) take whatever open space is left, still in draft
+		// order. Runs after everyone else has placed, so a partial track can never
+		// take a slot away from one that would have covered more of its races.
+		const stillUnplaced = [];
+		for (const track of unschedulableTracks) {
+			const placement = track.wantEnd > track.wantStart
+				? findBestPlacement(slots, track, 0)
+				: null;
+			if (!placement) {
+				stillUnplaced.push(track);
+				continue;
+			}
+			const item = {
+				slot: placement.slot + 1,
+				track: track,
+				start: placement.start,
+				end: placement.end
+			};
+			slots[placement.slot].push(item);
+			schedule.push(item);
 		}
+		unschedulableTracks.length = 0;
+		unschedulableTracks.push(...stillUnplaced);
 
 		// Disabled tracks: would they fit in what's left, without moving anyone?
+		// Checked before filling, so "Room on page" reflects real openings.
 		disabledTracks.forEach(track => {
 			if (track.isAddedFromDisabled) {
 				const item = schedule.find(s => s.track.code === track.code);
 				track.fitStatus = item ? 'added' : 'added-nofit';
 				return;
 			}
-			const placement = track.wantEnd > track.wantStart ? findBestPlacement(realBookings, track) : null;
+			const placement = track.wantEnd > track.wantStart ? findBestPlacement(slots, track) : null;
 			const racingMinutes = Math.max(1, (track.lastPost - track.earliestStart) / 60000);
 			if (!placement) track.fitStatus = 'full';
 			else if (placement.covered >= racingMinutes * 0.95) track.fitStatus = 'room';
@@ -909,6 +921,17 @@ JP</textarea>
 			track.fitPlacement = placement;
 		});
 		disabledTracks.sort((a, b) => b.handle - a.handle);
+
+		// Keep every slot filled from the start of the day onward
+		if (fillEmpty) {
+			fillEmptyStretches(slots, scheduleStart);
+		}
+
+		// Coverage flags - only set when races are actually missed
+		schedule.forEach(item => {
+			item.startedLate = item.start > item.track.earliestStart;
+			item.endedEarly = item.end < item.track.lastPost;
+		});
 
 		// Sort schedule by start time, then by slot
 		schedule.sort((a, b) => a.start - b.start || a.slot - b.slot);
@@ -950,6 +973,9 @@ JP</textarea>
 				const covered = racingMinutesCovered(item, item.track);
 				const racing = Math.max(1, (item.track.lastPost - item.track.earliestStart) / 60000);
 				notes.push(`ⓘ Partial coverage: ${Math.round(covered / racing * 100)}% of races`);
+			}
+			if (item.filledEarly) {
+				notes.push('ⓘ On page early to keep the slot filled');
 			}
 			scheduleHTML += `
 				<div class="track-slot">
